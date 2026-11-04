@@ -172,11 +172,22 @@ function render() {
   document.title = (S.unread ? `(${S.unread}) ` : '') + 'ブロパス配布 第1回 陣取り争奪戦';
 }
 
+const noBattle = () => !!(S.game && S.game.rules && S.game.rules.battle === false);
+function pillText() {
+  const ev = S.game.event;
+  if (ev.status === 'ended') return '🏁 終了';
+  if (ev.status !== 'running') return '⏳ 開始前';
+  let t = noBattle() ? '🕊 対戦なし' : '🔥 開催中';
+  if (ev.endsAt) { const r = Math.max(0, ev.endsAt - sNow()); t += ` 残り ${Math.floor(r / 60000)}:${String(Math.floor((r % 60000) / 1000)).padStart(2, '0')}`; }
+  return t;
+}
 function renderHeader() {
   const ev = S.game.event.status;
   const pill = $('#eventPill');
-  pill.className = 'pill ' + ev;
-  pill.textContent = ev === 'running' ? '🔥 開催中' : ev === 'ended' ? '🏁 終了' : '⏳ 開始前';
+  pill.className = 'pill ' + ev + (ev === 'running' && noBattle() ? ' nobattle' : '');
+  pill.textContent = pillText();
+  const nt = $('#notice'), ntx = S.game.notice;
+  nt.hidden = !ntx; if (ntx) nt.textContent = '📢 ' + ntx;
   const me = S.me ? `<span class="dot on"></span><span>${esc(S.me)}</span>` : '<span>👀 観戦モード</span>';
   setHTML($('#meChip'), me);
   $('#btnLogout').title = S.me ? 'ログアウト' : 'アカウント選択へ';
@@ -192,6 +203,7 @@ function renderBanner() {
   if (mine) { cls += ' alert'; html = `⚔ マス #${mine.cell} の争奪戦が進行中！<button class="btn small" data-act="openMine" data-id="${mine.id}">対戦画面を開く</button>`; }
   else if (ev === 'ready') { cls += ' warn'; html = '⏳ イベント開始前です。運営の開始を待ちましょう（観戦・チャットは利用できます）'; }
   else if (ev === 'ended') { cls += ' warn'; html = '🏁 イベントは終了しました。ご参加ありがとうございました！'; }
+  else if (ev === 'running' && noBattle()) { cls += ' warn'; html = '🕊 いまは「対戦なしモード」です。空きマスを選んで陣地を決めましょう（確保済みのマスへの挑戦はできません）'; }
   else if (S.me && !S.game.cells.some((c) => c.o === S.me)) html = '🎯 好きなマスをタップして、自分の陣地を確保しよう！';
   else if (!S.me) html = '👀 観戦モードです。参加するにはアカウントを選択してください';
   el.hidden = !html; el.className = cls; setHTML(el, html);
@@ -206,9 +218,11 @@ function renderBoard() {
     if (!o) cls.push('free'); else { cls.push('owned', 'p' + (Math.floor(idx / 8) % 4)); style = `--c:${PAL[idx % 8]}`; }
     if (c.b) cls.push('fight');
     if (o && o === S.me) cls.push('mine');
+    const away = o && o !== S.me && !c.b && !isOn(o);
+    if (away) cls.push('away');
     if (prev && o && prev[c.n - 1] !== o) cls.push('pop');
     const st = o ? S.game.players[o] : null;
-    const meta = o ? (c.b ? '争奪中！' : st.b ? '勝率' + rate(st) : '新規') : '';
+    const meta = o ? (c.b ? '争奪中！' : away ? '🌙 オフライン' : st.b ? '勝率' + rate(st) : '新規') : '';
     return `<button class="${cls.join(' ')}" data-cell="${c.n}" style="${style}" aria-label="マス${c.n} ${o ? esc(o) : '空き'}">
       <span class="no">${c.n}</span>
       ${o ? `<span class="own">${esc(o)}</span>${isOn(o) ? '<i class="on"></i>' : ''}` : '<span class="empty">空き</span>'}
@@ -304,6 +318,7 @@ function openCell(n) {
   else if (ev !== 'running') act = '<p>イベントは現在開催中ではありません。</p>';
   else if (o === S.me) act = '<p>✅ ここはあなたの陣地です。</p>';
   else if (!o) act = `<button class="btn green wide big" data-act="claim" data-n="${n}">ここを確保する</button>`;
+  else if (noBattle()) act = `<p style="margin:0 0 10px;font-size:.9rem">🕊 いまは対戦なしモードのため、確保済みのマスには挑戦できません。空きマスを選んでください。</p><button class="btn wide big" disabled>⚔ 挑戦できません</button>`;
   else if (!isOn(o)) act = `<p style="margin:0 0 10px;font-size:.9rem">🌙 <b>${esc(o)}</b> は今オフラインです。オンラインの時だけ奪えます。</p><button class="btn wide big" disabled>⚔ 挑戦できません</button>`;
   else act = `<p style="margin:0 0 10px;font-size:.88rem">すでに <b>${esc(o)}</b> が確保済みです。奪うには「お肉ピッタリ半分」で勝負！</p><button class="btn red wide big" data-act="claim" data-n="${n}">⚔ 挑戦する</button>`;
   openModal(`<h3><span class="cell-no">${n}</span>マス #${n}</h3>
@@ -575,6 +590,20 @@ async function adminCall(op, args) {
   try { await api('admin', { adminToken: S.admin, op, ...args }); await doSync(false); toast('実行しました', 'ok'); S.lastRep = 0; }
   catch (e) { adminErr(e); if (e.code !== 'admin') toast(e.message, 'err'); }
 }
+function resultText() {
+  const g = S.game, N = g.cells.length;
+  const rows = S.names.filter((n) => !isTest(n)).map((n) => ({ n, p: g.players[n], cells: g.cells.filter((c) => c.o === n).map((c) => '#' + c.n) }));
+  rows.sort((a, b) => b.p.w - a.p.w || (b.p.b ? b.p.w / b.p.b : -1) - (a.p.b ? a.p.w / a.p.b : -1) || b.cells.length - a.cells.length || a.n.localeCompare(b.n));
+  const st = g.event.status === 'running' ? '開催中' : g.event.status === 'ended' ? '終了' : '開始前';
+  return [`【ブロパス配布 第1回 陣取り争奪戦 結果】`, `状態: ${st} ／ 陣地確保 ${g.cells.filter((c) => c.o).length}/${N}マス`, '', '■ ランキング（勝利数順）',
+    ...rows.map((r, i) => `${i + 1}. ${r.n}  ${r.p.w}勝${r.p.l}敗  陣地: ${r.cells.join(' ') || 'なし'}`), '', '■ マス一覧',
+    ...g.cells.map((c) => `#${c.n} ${c.o || '（空き）'}`)].join('\n');
+}
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); }
+  catch { const a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); document.execCommand('copy'); a.remove(); }
+  toast('結果をコピーしました', 'ok');
+}
 async function adminEnterAs(name) {
   closeAdmin();
   if (S.me) { try { await api('logout', auth()); } catch {} S.me = null; S.token = null; S.storedMe = null; try { localStorage.removeItem('bp_me'); localStorage.removeItem('bp_token'); } catch {} }
@@ -605,7 +634,19 @@ function renderAdmin() {
       <button class="btn ghost" ${ad('event', { status: 'ready' })}>↩ 開始前に戻す</button></div>
       <div class="sec-title">リセット</div><div class="btn-row">
       <button class="btn ghost" ${ad('resetCells', {}, '全マスの所有権と進行中の争奪戦をリセットします。よろしいですか？')}>的（マス）をリセット</button>
-      <button class="btn red" ${ad('resetAll', {}, '全マス・全戦績・対戦結果をリセットし、開始前に戻します。本当によろしいですか？')}>すべて初期化</button></div>`;
+      <button class="btn red" ${ad('resetAll', {}, '全マス・全戦績・対戦結果をリセットし、開始前に戻します。本当によろしいですか？')}>すべて初期化</button></div>
+      <div class="sec-title">🕊 対戦モード</div><div class="btn-row">
+      <button class="btn ${noBattle() ? 'ghost' : 'green'}" ${ad('setRules', { battle: true })}>⚔ 対戦あり（通常）</button>
+      <button class="btn ${noBattle() ? 'purple' : 'ghost'}" ${ad('setRules', { battle: false })}>🕊 対戦なし（位置選択のみ）</button></div>
+      <small style="opacity:.8">現在: <b>${noBattle() ? '対戦なし' : '対戦あり'}</b>。対戦なし中も、空きマスの確保・移動はできます。すでに始まっている対戦は続行されます。</small>
+      <div class="sec-title">⏱ 自動終了タイマー</div><div class="btn-row">
+      ${[10, 30, 60].map((m) => `<button class="btn small ghost" ${ad('setTimer', { minutes: m })}>${m}分後に終了</button>`).join('')}
+      <button class="btn small ghost" data-act="adminTimerCustom">分数を指定…</button>
+      <button class="btn small ghost" ${ad('setTimer', { minutes: 0 })}>解除</button></div>
+      <small style="opacity:.8">現在: <b>${g.event.endsAt ? new Date(g.event.endsAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' に自動終了' : '設定なし'}</b>（開催中のみ有効。参加者の画面に残り時間が出ます）</small>
+      <div class="sec-title">📢 お知らせ（全員の画面に固定表示）</div>
+      <form id="adminNoticeForm" style="display:flex;gap:8px;flex-wrap:wrap"><input class="input" id="adminNoticeText" maxlength="120" placeholder="例：19時から対戦開始！" value="${esc(g.notice || '')}" style="flex:1;min-width:200px"><button class="btn small blue" type="submit">表示する</button><button class="btn small ghost" type="button" ${ad('setNotice', { text: '' })}>消す</button></form>
+      <div class="sec-title">📋 結果</div><div class="btn-row"><button class="btn small ghost" data-act="adminCopy">結果をテキストでコピー</button></div>`;
   } else if (S.adminTab === 'players') {
     const nTest = S.names.filter(isTest).length;
     c = `<div class="card" style="padding:12px;margin-bottom:12px"><div class="sec-title" style="margin-top:0">🧪 テスト参加者を作る（${nTest}人）</div>
@@ -615,6 +656,7 @@ function renderAdmin() {
       const p = g.players[n], st = statusOf(n), cells = g.cells.filter((x) => x.o === n);
       return `<div class="a-row ${p.banned ? 'banned' : ''}"><span class="dot ${st.on ? 'on' : ''}"></span><div class="grow"><b>${esc(n)}</b> ${testTag(n)}<br><small>${st.label}・陣地 ${cells.map((x) => '#' + x.n).join(' ') || 'なし'}・${p.w}勝${p.l}敗・最終${lastSeen(n)}</small></div>
         ${p.banned ? `<button class="btn small green" ${ad('unban', { name: n })}>停止解除</button>` : `<button class="btn small red" ${ad('ban', { name: n }, n + ' を停止しますか？（陣地は解放され、対戦は取り消されます）')}>停止</button>`}
+        ${p.banned ? '' : `<button class="btn small ghost" data-act="adminSetOwner" data-name="${esc(n)}">マス指定</button>`}
         ${isTest(n) && !p.banned ? `<button class="btn small blue" data-act="adminEnterAs" data-name="${esc(n)}">このアカウントで参加</button>` : ''}
         ${isTest(n) ? `<button class="btn small red" ${ad('removeTest', { name: n }, n + ' を削除しますか？（陣地・戦績も消えます）')}>削除</button>` : ''}
         <button class="btn small ghost" ${ad('kick', { name: n }, n + ' を強制ログアウトしますか？')}>強制ログアウト</button>
@@ -687,6 +729,9 @@ function bind() {
     if (!a) return;
     if (a.dataset.act === 'aclose') closeAdmin();
     else if (a.dataset.act === 'adminEnterAs') adminEnterAs(a.dataset.name);
+    else if (a.dataset.act === 'adminCopy') copyText(resultText());
+    else if (a.dataset.act === 'adminTimerCustom') { const v = prompt('何分後に自動終了しますか？（1〜1440）'); const m = Number(v); if (v !== null && m > 0) adminCall('setTimer', { minutes: m }); }
+    else if (a.dataset.act === 'adminSetOwner') { const N = S.game.cells.length, v = prompt(`${a.dataset.name} を置くマス番号（1〜${N}）\n※元の陣地は空きになります`); const n = Number(v); if (v !== null && Number.isInteger(n) && n >= 1 && n <= N) adminCall('setOwner', { name: a.dataset.name, cell: n }); }
     else if (a.dataset.act === 'adminLogout') { S.admin = null; try { sessionStorage.removeItem('bp_admin'); } catch {} renderAdmin(); }
     else if (a.dataset.act === 'adminLogin') {
       const pw = $('#adminPw').value; a.disabled = true;
@@ -697,6 +742,10 @@ function bind() {
   });
   $('#adminBody').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'adminPw') $('[data-act="adminLogin"]').click(); });
   $('#adminBody').addEventListener('submit', (e) => {
+    if (e.target.id === 'adminNoticeForm') {
+      e.preventDefault(); const i = $('#adminNoticeText'), tx = i.value.trim(); i.blur();
+      adminCall('setNotice', { text: tx }); return;
+    }
     if (e.target.id === 'adminTestForm') {
       e.preventDefault(); const i = $('#adminTestName'), nm = i.value.trim(); i.value = ''; i.blur();
       adminCall('addTest', nm ? { name: nm } : { count: 1 }); return;
@@ -720,6 +769,7 @@ async function boot() {
     }
   }
   render();
+  setInterval(() => { if (S.game && S.inApp) $('#eventPill').textContent = pillText(); }, 1000);
   setTimeout(loop, 1500);
 }
 boot();

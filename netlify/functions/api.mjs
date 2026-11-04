@@ -59,7 +59,9 @@ async function mutate(name, key, init, fn) {
 const initGame = () => ({
   ver: 1,
   seq: 0,
-  event: { status: "ready", startedAt: null, endedAt: null }, // ready / running / ended
+  event: { status: "ready", startedAt: null, endedAt: null, endsAt: null }, // ready / running / ended（endsAt=自動終了時刻）
+  rules: { battle: true }, // battle=false で「対戦なしモード」（空きマスの確保・移動だけ可能）
+  notice: null, // 運営からの固定お知らせ
   names: [...PLAYERS], // 参加者の並び順（初期参加者 + 運営が作ったテスト参加者）
   cells: Array.from({ length: C.CELLS }, (_, i) => ({ n: i + 1, owner: null, battle: null, at: null })),
   players: Object.fromEntries(PLAYERS.map((n) => [n, { b: 0, w: 0, l: 0, banned: false }])),
@@ -180,9 +182,12 @@ function settle(g, now) {
 }
 
 // 旧データ（6x6・names無し）を現在の仕様に合わせる
-const needsFix = (g) => !Array.isArray(g.names) || g.cells.length !== C.CELLS;
+const needsFix = (g) => !Array.isArray(g.names) || g.cells.length !== C.CELLS || !g.rules;
+const timerDue = (g, now) => g.event.status === "running" && g.event.endsAt && now >= g.event.endsAt;
 function normGame(g) {
   if (!Array.isArray(g.names)) g.names = [...PLAYERS];
+  if (!g.rules) g.rules = { battle: true };
+  if (g.event.endsAt === undefined) g.event.endsAt = null;
   for (const n of g.names) if (!g.players[n]) g.players[n] = { b: 0, w: 0, l: 0, banned: false };
   // マスが減った場合: はみ出したマスの争奪戦は取り消し、陣地は消える
   while (g.cells.length > C.CELLS) {
@@ -198,6 +203,10 @@ async function mutGame(fn) {
   return mutate("game", "g", initGame, (g) => {
     normGame(g);
     settle(g, now);
+    if (timerDue(g, now)) {
+      g.event.status = "ended";
+      g.event.endedAt = g.event.endsAt;
+    }
     const r = fn(g, now);
     g.ver++;
     return r;
@@ -227,6 +236,7 @@ function doClaim(g, name, n, now, isOn) {
     c.at = now;
     return { kind: "claimed", cell: c.n };
   }
+  if (g.rules && g.rules.battle === false) fail("no_battle", "いまは対戦なしモードです。確保済みのマスには挑戦できません（空きマスは選べます）");
   if (isOn && !isOn(c.owner)) fail("offline", `${c.owner} は今オフラインなので、このマスは奪えません。オンラインの時に挑戦しましょう`);
   if (activeBattleOf(g, c.owner)) fail("busy", "所有者が別の対戦中です。少し待ってからもう一度どうぞ");
   const id = ++g.seq;
@@ -253,6 +263,8 @@ function viewGame(g) {
   return {
     ver: g.ver,
     event: g.event,
+    rules: g.rules || { battle: true },
+    notice: g.notice || null,
     cells: g.cells.map((c) => ({ n: c.n, o: c.owner, b: c.battle, at: c.at })),
     players: g.players,
     // 進行中の記録は誰にも見せない（stopped = 止めたかどうかだけ）
@@ -313,7 +325,7 @@ async function route(b) {
         }
       }
       let g = g0;
-      if (needsSettle(g, now) || needsFix(g)) {
+      if (needsSettle(g, now) || needsFix(g) || timerDue(g, now)) {
         await mutGame(() => {});
         g = await readJSON("game", "g", initGame);
       }
@@ -502,7 +514,11 @@ async function adminOp(b) {
         g.event.status = b.status;
         if (b.status === "running" && !g.event.startedAt) g.event.startedAt = t;
         if (b.status === "ended") g.event.endedAt = t;
-        if (b.status === "running") g.event.endedAt = null;
+        if (b.status === "running") {
+          g.event.endedAt = null;
+          if (g.event.endsAt && g.event.endsAt <= t) g.event.endsAt = null; // 過ぎた終了時刻は破棄
+        }
+        if (b.status === "ready") g.event.endsAt = null;
         return {};
       });
     }
@@ -528,7 +544,7 @@ async function adminOp(b) {
           g.players[k] = { b: 0, w: 0, l: 0, banned: !!(old[k] && old[k].banned) };
           if (old[k] && old[k].test) g.players[k].test = true;
         }
-        g.event = { status: "ready", startedAt: null, endedAt: null };
+        g.event = { status: "ready", startedAt: null, endedAt: null, endsAt: null };
         return {};
       });
     case "ban":
@@ -579,6 +595,7 @@ async function adminOp(b) {
     case "setOwner":
       return mutGame((g, t) => {
         validName(g, b.name);
+        notBanned(g, b.name);
         const c = cellOf(g, b.cell);
         if (c.battle) fail("contested", "争奪戦中のマスです");
         releaseOwned(g, b.name, c.n);
@@ -598,6 +615,27 @@ async function adminOp(b) {
         finish(g, bt, b.winner, "admin", t);
         return {};
       });
+    // ---------- モード・お知らせ・タイマー ----------
+    case "setRules":
+      return mutGame((g) => {
+        g.rules.battle = b.battle !== false;
+        return {};
+      });
+    case "setNotice": {
+      const text = String(b.text || "").trim().slice(0, 120);
+      return mutGame((g) => {
+        g.notice = text || null;
+        return {};
+      });
+    }
+    case "setTimer": {
+      const m = Number(b.minutes);
+      if (!(m >= 0 && m <= 1440)) fail("bad", "分数は0〜1440の範囲で指定してください（0で解除）");
+      return mutGame((g, t) => {
+        g.event.endsAt = m > 0 ? t + Math.round(m * 60000) : null;
+        return {};
+      });
+    }
     // ---------- テスト参加者 ----------
     case "addTest": {
       const want = String(b.name ?? "").trim();

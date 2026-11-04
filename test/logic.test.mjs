@@ -206,4 +206,51 @@ assert.equal((await call("claim", { name: B, token: tb, cell: 1 })).error, "not_
   assert.equal(on.kind, "battle", "オンラインなら挑戦できる");
 }
 
+// ---------- 対戦なしモード / お知らせ / タイマー / マス指定 ----------
+{
+  ok(await call("admin", { adminToken, op: "resetAll" }));
+  ok(await call("admin", { adminToken, op: "event", status: "running" }));
+  ok(await call("admin", { adminToken, op: "addTest", name: "P1" }));
+  ok(await call("admin", { adminToken, op: "addTest", name: "P2" }));
+  const p1 = ok(await call("login", { name: "P1" })).token;
+  const p2 = ok(await call("login", { name: "P2" })).token;
+  ok(await call("claim", { name: "P1", token: p1, cell: 8 }));
+  // 対戦なしモード: 確保済みには挑戦不可、空きマスの確保・移動は可能
+  ok(await call("admin", { adminToken, op: "setRules", battle: false }));
+  assert.equal(ok(await call("sync", { gameVer: 0, chatVer: 0 })).game.rules.battle, false);
+  assert.equal((await call("claim", { name: "P2", token: p2, cell: 8 })).error, "no_battle");
+  assert.equal(ok(await call("claim", { name: "P2", token: p2, cell: 9 })).kind, "claimed");
+  assert.equal(ok(await call("claim", { name: "P2", token: p2, cell: 10 })).kind, "claimed"); // 移動
+  ok(await call("admin", { adminToken, op: "setRules", battle: true }));
+  assert.equal(ok(await call("claim", { name: "P2", token: p2, cell: 8 })).kind, "battle"); // 通常に戻ると挑戦できる
+  ok(await call("admin", { adminToken, op: "cancelBattle", id: ok(await call("sync", { gameVer: 0, chatVer: 0 })).game.battles[0].id }));
+
+  // マス指定（運営）
+  ok(await call("admin", { adminToken, op: "setOwner", name: "P1", cell: 20 }));
+  let g = ok(await call("sync", { gameVer: 0, chatVer: 0 })).game;
+  assert.equal(g.cells[19].o, "P1");
+  assert.equal(g.cells[7].o, null, "元の陣地は空く");
+  assert.equal((await call("admin", { adminToken, op: "setOwner", name: "P1", cell: 31 })).ok, false);
+
+  // お知らせ
+  ok(await call("admin", { adminToken, op: "setNotice", text: "  19時開始  " }));
+  assert.equal(ok(await call("sync", { gameVer: 0, chatVer: 0 })).game.notice, "19時開始");
+  ok(await call("admin", { adminToken, op: "setNotice", text: "" }));
+  assert.equal(ok(await call("sync", { gameVer: 0, chatVer: 0 })).game.notice, null);
+
+  // タイマー: 自動終了
+  assert.equal((await call("admin", { adminToken, op: "setTimer", minutes: -1 })).ok, false);
+  ok(await call("admin", { adminToken, op: "setTimer", minutes: 0.01 })); // 0.6秒
+  assert.ok(ok(await call("sync", { gameVer: 0, chatVer: 0 })).game.event.endsAt);
+  await sleep(900);
+  g = ok(await call("sync", { gameVer: 0, chatVer: 0 })).game;
+  assert.equal(g.event.status, "ended", "時間になったら自動終了");
+  assert.equal((await call("claim", { name: "P2", token: p2, cell: 1 })).error, "not_running");
+  // 再開すると過ぎたタイマーは破棄される
+  ok(await call("admin", { adminToken, op: "event", status: "running" }));
+  g = ok(await call("sync", { gameVer: 0, chatVer: 0 })).game;
+  assert.equal(g.event.status, "running");
+  assert.equal(g.event.endsAt, null);
+}
+
 console.log("ALL TESTS PASSED");
