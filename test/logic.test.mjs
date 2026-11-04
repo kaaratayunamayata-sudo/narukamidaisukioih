@@ -190,4 +190,20 @@ assert.equal((await call("claim", { name: B, token: tb, cell: 1 })).error, "not_
   assert.equal((await call("admin", { adminToken, op: "addTest", count: 10 })).error, "limit");
 }
 
+// ---------- オフラインの人のマスは奪えない ----------
+{
+  ok(await call("admin", { adminToken, op: "event", status: "running" }));
+  ok(await call("admin", { adminToken, op: "addTest", name: "Own" }));
+  ok(await call("admin", { adminToken, op: "addTest", name: "Chal" }));
+  const to = ok(await call("login", { name: "Own" })).token;
+  const tc = ok(await call("login", { name: "Chal" })).token;
+  ok(await call("claim", { name: "Own", token: to, cell: 3 }));
+  ok(await call("logout", { name: "Own", token: to })); // オフラインになる
+  const off = await call("claim", { name: "Chal", token: tc, cell: 3 });
+  assert.equal(off.error, "offline", "オフラインの所有者のマスは奪えない");
+  const to2 = ok(await call("login", { name: "Own" })).token; // オンラインに戻る
+  const on = ok(await call("claim", { name: "Chal", token: tc, cell: 3 }));
+  assert.equal(on.kind, "battle", "オンラインなら挑戦できる");
+}
+
 console.log("ALL TESTS PASSED");

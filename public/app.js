@@ -304,6 +304,7 @@ function openCell(n) {
   else if (ev !== 'running') act = '<p>イベントは現在開催中ではありません。</p>';
   else if (o === S.me) act = '<p>✅ ここはあなたの陣地です。</p>';
   else if (!o) act = `<button class="btn green wide big" data-act="claim" data-n="${n}">ここを確保する</button>`;
+  else if (!isOn(o)) act = `<p style="margin:0 0 10px;font-size:.9rem">🌙 <b>${esc(o)}</b> は今オフラインです。オンラインの時だけ奪えます。</p><button class="btn wide big" disabled>⚔ 挑戦できません</button>`;
   else act = `<p style="margin:0 0 10px;font-size:.88rem">すでに <b>${esc(o)}</b> が確保済みです。奪うには「お肉ピッタリ半分」で勝負！</p><button class="btn red wide big" data-act="claim" data-n="${n}">⚔ 挑戦する</button>`;
   openModal(`<h3><span class="cell-no">${n}</span>マス #${n}</h3>
     <dl class="kv"><dt>状態</dt><dd>${bt ? '🔥 争奪戦中' : o ? '確保済み' : '✨ 空き地'}</dd>
@@ -502,7 +503,21 @@ async function battleAction(act) {
 }
 
 /* ================= チャット ================= */
+function chatToast(m, count) {
+  $$('#toasts .toast.chat').forEach((e) => e.remove());
+  const t = document.createElement('div');
+  t.className = 'toast chat';
+  const head = document.createElement('b');
+  head.textContent = (m.adm ? '📢 ' : '💬 ') + m.n + (count > 1 ? `（ほか${count - 1}件）` : '');
+  const body = document.createElement('div');
+  body.textContent = m.t.length > 50 ? m.t.slice(0, 50) + '…' : m.t;
+  t.append(head, body);
+  t.addEventListener('click', () => { t.remove(); openChat(); });
+  $('#toasts').appendChild(t);
+  setTimeout(() => t.remove(), 3900);
+}
 function onChat(c) {
+  if (!S.inApp) { S.chat = c; S.chatVer = c.ver; return; } // ログイン画面では通知しない
   const first = S.seenChat === null;
   const maxId = c.msgs.reduce((m, x) => Math.max(m, x.id), 0);
   if (first) S.seenChat = maxId;
@@ -512,7 +527,8 @@ function onChat(c) {
     else if (fresh.length) {
       S.unread += fresh.length; S.seenChat = maxId;
       const l = fresh[fresh.length - 1];
-      toast(`💬 ${l.n}: ${l.t.slice(0, 40)}`, 'chat');
+      const fighting = S.me && S.game && S.game.battles.some((b) => b.c === S.me || b.d === S.me);
+      if (!fighting) chatToast(l, fresh.length); // 対戦中はバッジだけ（STOPの邪魔をしない）
     } else S.seenChat = Math.max(S.seenChat, maxId);
   }
   S.chat = c; S.chatVer = c.ver;

@@ -214,7 +214,7 @@ const notBanned = (g, name) => {
   if (g.players[name].banned) fail("banned", "このアカウントは停止されています");
 };
 
-function doClaim(g, name, n, now) {
+function doClaim(g, name, n, now, isOn) {
   notBanned(g, name);
   if (g.event.status !== "running") fail("not_running", "イベントは現在開催中ではありません");
   if (activeBattleOf(g, name)) fail("busy", "対戦中は操作できません");
@@ -227,6 +227,7 @@ function doClaim(g, name, n, now) {
     c.at = now;
     return { kind: "claimed", cell: c.n };
   }
+  if (isOn && !isOn(c.owner)) fail("offline", `${c.owner} は今オフラインなので、このマスは奪えません。オンラインの時に挑戦しましょう`);
   if (activeBattleOf(g, c.owner)) fail("busy", "所有者が別の対戦中です。少し待ってからもう一度どうぞ");
   const id = ++g.seq;
   g.battles[id] = {
@@ -363,7 +364,10 @@ async function route(b) {
 
     case "claim": {
       await auth(b.name, b.token);
-      return mutGame((g, t) => doClaim(g, b.name, b.cell, t));
+      // 所有者がオンラインの時だけ奪える（オンライン = 直近のpingが ONLINE_MS 以内）
+      const pres = await readJSON("presence", "p", () => ({}));
+      const isOn = (n) => !!pres[n] && Date.now() - pres[n].t < C.ONLINE_MS;
+      return mutGame((g, t) => doClaim(g, b.name, b.cell, t, isOn));
     }
 
     case "ready": {
