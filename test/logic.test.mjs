@@ -21,6 +21,9 @@ __setStoreFactory((name) => ({
   },
 }));
 
+// 既存テストは時間がかかるので、オンライン判定は緩めておく（新しいテストで個別に厳しくする）
+C.ONLINE_MS = 1e9;
+C.BATTLE_OFF_MS = 1e9;
 const call = async (action, body = {}) => (await handleBody({ action, ...body })).body;
 const ok = (r) => { assert.equal(r.ok, true, JSON.stringify(r)); return r; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -251,6 +254,59 @@ assert.equal((await call("claim", { name: B, token: tb, cell: 1 })).error, "not_
   g = ok(await call("sync", { gameVer: 0, chatVer: 0 })).game;
   assert.equal(g.event.status, "running");
   assert.equal(g.event.endsAt, null);
+}
+
+// ---------- 対戦中・準備待ちに相手がオフラインになったら勝負できない ----------
+{
+  C.BATTLE_OFF_MS = 600;
+  ok(await call("admin", { adminToken, op: "addTest", name: "V1" }));
+  ok(await call("admin", { adminToken, op: "addTest", name: "V2" }));
+  const v1 = ok(await call("login", { name: "V1" })).token;
+  const v2 = ok(await call("login", { name: "V2" })).token;
+  const ping = (name, token) => call("sync", { name, token, ping: true, activity: "battle", gameVer: 0, chatVer: 0 });
+  ok(await call("claim", { name: "V1", token: v1, cell: 5 }));
+  assert.equal(ok(await call("claim", { name: "V2", token: v2, cell: 5 })).kind, "battle");
+
+  // (1) 準備待ち中に所有者が消えた → 中止
+  await sleep(900);
+  let r = ok(await ping("V2", v2));
+  assert.equal(r.game.battles.length, 0, "準備待ちの相手がオフラインなら対戦は中止");
+  assert.deepEqual(r.game.voids[0].off, ["V1"]);
+  assert.equal(r.game.voids[0].phase, "pending");
+  assert.equal(r.game.cells[4].o, "V1");
+  assert.equal(r.game.cells[4].b, null);
+  assert.equal(r.game.players["V1"].b, 0, "勝敗はつかない");
+
+  // (2) 相手がオフラインのまま「準備OK」は押せない
+  const c2 = ok(await call("claim", { name: "V2", token: v2, cell: 5 }));
+  assert.equal(c2.kind, "battle");
+  const rd = await call("ready", { name: "V2", token: v2, id: c2.id });
+  assert.equal(rd.error, "offline");
+  const bid = c2.id;
+
+  // (3) 両者オンライン → 開始 → 途中でSTOP前に片方が消えたら中止
+  await ping("V1", v1); await ping("V2", v2);
+  ok(await call("ready", { name: "V2", token: v2, id: bid }));
+  ok(await call("ready", { name: "V1", token: v1, id: bid }));
+  assert.equal(ok(await ping("V2", v2)).game.battles[0].state, "running");
+  await sleep(900);
+  r = ok(await ping("V2", v2));
+  assert.equal(r.game.battles.length, 0, "対戦中にSTOP前の相手が消えたら中止");
+  assert.equal(r.game.voids[0].phase, "running");
+  assert.equal(r.game.players["V2"].b, 0);
+  C.BATTLE_OFF_MS = 1e9;
+}
+
+// ---------- 通信速度・演出ブロードキャスト ----------
+{
+  ok(await call("admin", { adminToken, op: "setRules", speed: "fast" }));
+  let g = ok(await call("sync", { gameVer: 0, chatVer: 0 })).game;
+  assert.equal(g.rules.speed, "fast");
+  assert.equal(g.rules.battle !== false, true, "speedだけ変えても対戦モードは変わらない");
+  ok(await call("admin", { adminToken, op: "fx", type: "fireworks" }));
+  g = ok(await call("sync", { gameVer: 0, chatVer: 0 })).game;
+  assert.equal(g.fx.type, "fireworks");
+  assert.equal((await call("admin", { adminToken, op: "fx", type: "evil" })).ok, false);
 }
 
 console.log("ALL TESTS PASSED");

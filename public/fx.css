@@ -1,0 +1,128 @@
+/* ===== 演出・アニメーション・スマホ/iPad対応 ===== */
+
+/* ---- スマホ / iPad の基本対策 ---- */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+*{-webkit-tap-highlight-color:transparent}
+button,.cell,.btn,.icon-btn,.login-item{touch-action:manipulation}
+.cell,.fighter,.bt-msg,.stop-btn,.bottom-nav{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.stop-btn{-webkit-user-select:none;user-select:none}
+.board-frame{width:min(100%,calc((100dvh - 190px)*1.2))}
+.chat{height:min(640px,86dvh)}
+.chat-fab{right:max(14px,env(safe-area-inset-right))}
+.topbar{padding-left:max(12px,env(safe-area-inset-left));padding-right:max(12px,env(safe-area-inset-right))}
+.layout{padding-left:max(14px,env(safe-area-inset-left));padding-right:max(14px,env(safe-area-inset-right))}
+input,select,textarea{font-size:16px} /* iOSで入力時に勝手に拡大されるのを防ぐ */
+@media (min-width:700px) and (max-width:999px){
+  .layout{padding-left:28px;padding-right:28px}
+  .board-frame{margin-left:auto;margin-right:auto}
+  .col-side{max-width:720px;margin:0 auto;width:100%}
+  .chat{width:min(460px,100%)}
+}
+@media (max-width:420px){ .brand-text{font-size:.9rem} }
+
+/* ---- パーティクル / 全画面エフェクト ---- */
+#fxCanvas{position:fixed;inset:0;z-index:500;pointer-events:none}
+.fx-ring{position:fixed;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;border:6px solid var(--c,#fff);z-index:490;pointer-events:none;animation:fxRing .7s ease-out forwards}
+@keyframes fxRing{to{transform:scale(8);opacity:0;border-width:1px}}
+.fx-flash{position:fixed;inset:0;z-index:480;background:var(--c,#fff);pointer-events:none;animation:fxFlash .38s ease-out forwards}
+@keyframes fxFlash{from{opacity:.75}to{opacity:0}}
+.shake{animation:fxShake .42s cubic-bezier(.36,.07,.19,.97)}
+@keyframes fxShake{10%,90%{transform:translate3d(-2px,0,0)}20%,80%{transform:translate3d(4px,2px,0)}30%,50%,70%{transform:translate3d(-8px,-2px,0)}40%,60%{transform:translate3d(8px,2px,0)}}
+
+.fx-banner{position:fixed;inset:0;z-index:460;display:grid;place-items:center;padding:16px;background:radial-gradient(circle,rgba(20,10,46,.15),rgba(20,10,46,.7));animation:fxBnIn .3s ease-out;text-align:center;color:#fff}
+.fx-banner.plain{animation:none}
+.fx-bn-in{animation:fxBnPop .8s cubic-bezier(.2,1.6,.4,1)}
+.fx-bn-in .big{font-family:var(--font-logo);font-size:clamp(2.2rem,11vw,5.6rem);line-height:1.1;color:var(--yellow2);-webkit-text-stroke:6px var(--ink);paint-order:stroke fill;text-shadow:0 8px 0 var(--ink);animation:fxBob 1.2s ease-in-out infinite alternate}
+.fx-bn-in .sub{margin-top:10px;font-size:clamp(1rem,4vw,1.6rem);font-weight:900;text-shadow:0 2px 0 var(--ink)}
+.podium{display:flex;justify-content:center;align-items:flex-end;gap:10px;margin-top:18px}
+.podium div{width:min(28vw,150px);padding:8px 6px;border:4px solid var(--ink);border-radius:14px 14px 0 0;color:var(--ink);font-weight:900;overflow-wrap:anywhere;font-size:.9rem;box-shadow:0 5px 0 var(--ink);animation:fxRise .8s cubic-bezier(.2,1.4,.4,1) backwards}
+.podium .p1{background:linear-gradient(#ffe36e,#ffc21a);min-height:130px;animation-delay:.5s}
+.podium .p2{background:linear-gradient(#f1f1f7,#c9c9d6);min-height:100px;animation-delay:.3s}
+.podium .p3{background:linear-gradient(#ffc9a0,#e09a64);min-height:78px;animation-delay:.1s}
+.podium small{display:block;font-weight:700;opacity:.8}
+@keyframes fxBnIn{from{opacity:0}to{opacity:1}}
+@keyframes fxBnPop{0%{transform:scale(.2) rotate(-8deg);opacity:0}60%{transform:scale(1.12) rotate(2deg);opacity:1}100%{transform:scale(1)}}
+@keyframes fxBob{from{transform:translateY(0) rotate(-1.5deg)}to{transform:translateY(-8px) rotate(1.5deg)}}
+@keyframes fxRise{from{transform:translateY(80px);opacity:0}}
+
+/* ---- 流れるチャット ---- */
+#floaty{position:fixed;inset:0;z-index:150;pointer-events:none;overflow:hidden}
+body.in-battle #floaty{opacity:.5}
+.fl{position:absolute;bottom:-70px;max-width:min(72vw,300px);animation:flRise var(--dur,11s) linear forwards;will-change:transform,opacity}
+.fl .in{padding:6px 12px;border-radius:18px;background:rgba(255,255,255,.94);color:var(--ink);border:3px solid var(--ink);box-shadow:0 3px 0 var(--ink);font-size:.88rem;font-weight:700;line-height:1.35;overflow-wrap:anywhere;animation:flSway 3.2s ease-in-out infinite alternate;will-change:transform}
+.fl .in b{display:block;font-size:.66rem;opacity:.65;font-weight:900}
+.fl.me .in{background:#fff3a0}
+.fl.adm .in{background:var(--pink);color:#fff;border-color:var(--ink)}
+.fl.emo .in{background:none;border:0;box-shadow:none;padding:0;font-size:2.8rem;line-height:1;filter:drop-shadow(0 3px 2px rgba(20,10,46,.45))}
+@keyframes flRise{0%{transform:translate3d(0,0,0);opacity:0}7%{opacity:1}86%{opacity:1}100%{transform:translate3d(0,-118dvh,0);opacity:0}}
+@keyframes flSway{from{transform:translateX(calc(var(--sway,20px)*-1)) rotate(-3deg)}to{transform:translateX(var(--sway,20px)) rotate(3deg)}}
+
+/* ---- スタンプ ---- */
+.stamp-fab{position:fixed;left:max(14px,env(safe-area-inset-left));bottom:88px;z-index:30;width:54px;height:54px;border-radius:50%;border:4px solid var(--ink);background:linear-gradient(180deg,#fff7b8,var(--yellow));font-size:1.5rem;box-shadow:0 4px 0 var(--ink);cursor:pointer;padding:0}
+.stamp-fab:active{transform:translateY(3px);box-shadow:0 1px 0 var(--ink)}
+.stamp-tray{position:fixed;left:max(10px,env(safe-area-inset-left));bottom:152px;z-index:31;display:flex;flex-wrap:wrap;gap:6px;max-width:min(92vw,330px);padding:8px;border:4px solid var(--ink);border-radius:18px;background:var(--paper);box-shadow:0 5px 0 var(--ink);animation:fxPop .25s cubic-bezier(.2,1.6,.4,1)}
+.stamp-tray button,.chat-stamps button{width:46px;height:46px;border-radius:14px;border:3px solid var(--ink);background:#fff;font-size:1.5rem;padding:0;cursor:pointer;box-shadow:0 3px 0 var(--ink)}
+.stamp-tray button:active,.chat-stamps button:active{transform:translateY(3px);box-shadow:none}
+.chat-stamps{display:flex;gap:6px;overflow-x:auto;padding:6px 10px 0;scrollbar-width:none}
+.chat-stamps button{flex:0 0 auto;width:40px;height:40px;font-size:1.25rem}
+@media (min-width:1000px){.stamp-fab{bottom:24px}.stamp-tray{bottom:88px}}
+@keyframes fxPop{from{transform:scale(.4);opacity:0}}
+
+/* ---- 設定モーダル ---- */
+.set-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 4px;border-bottom:2px dashed rgba(20,10,46,.18)}
+.set-row small{display:block;font-weight:500;opacity:.7}
+.sw{flex:0 0 auto;min-width:76px;padding:8px 12px;border:3px solid var(--ink);border-radius:999px;background:#d9d4e6;font-weight:900;cursor:pointer;box-shadow:0 3px 0 var(--ink)}
+.sw.on{background:var(--green,#2fbf71);color:#fff}
+
+/* ---- ボタン等のアニメーション ---- */
+.btn,.cell{position:relative;overflow:hidden}
+.btn .ripple,.cell .ripple{position:absolute;border-radius:50%;background:rgba(255,255,255,.55);transform:scale(0);animation:fxRipple .55s ease-out forwards;pointer-events:none}
+@keyframes fxRipple{to{transform:scale(1);opacity:0}}
+.btn.big:not(:disabled)::after{content:'';position:absolute;top:0;left:-70%;width:40%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.5),transparent);transform:skewX(-20deg);animation:fxSheen 3.2s infinite;pointer-events:none}
+@keyframes fxSheen{0%,60%{left:-70%}100%{left:130%}}
+.badge{animation:fxBadge 1.4s ease-in-out infinite}
+@keyframes fxBadge{50%{transform:scale(1.25)}}
+.bottom-nav button.on span{animation:fxNav .5s cubic-bezier(.2,1.8,.4,1)}
+@keyframes fxNav{from{transform:translateY(8px) scale(.6)}}
+.toast{animation:fxToast .4s cubic-bezier(.2,1.5,.4,1),toastout .4s 3.4s forwards}
+@keyframes fxToast{from{transform:translateY(-24px) scale(.85);opacity:0}}
+.pill.running{animation:fxGlow 2s ease-in-out infinite}
+@keyframes fxGlow{50%{box-shadow:0 0 0 5px rgba(47,191,113,.35)}}
+.logo b{animation:fxBob 3s ease-in-out infinite alternate}
+.hero-badge{animation:fxGlow 2.4s ease-in-out infinite}
+.card{animation:fxCard .45s ease-out backwards}
+@keyframes fxCard{from{transform:translateY(14px);opacity:0}}
+.login-item{transition:transform .15s}
+@media (hover:hover){.login-item:hover{transform:translateY(-2px) rotate(-.6deg)}}
+
+/* ---- 盤面 ---- */
+.cell.mine:not(.fight){animation:fxMine 2.2s ease-in-out infinite}
+@keyframes fxMine{50%{filter:brightness(1.16)}}
+.cell.fight::before{content:'';position:absolute;inset:-60%;background:conic-gradient(from 0deg,transparent 0 70%,rgba(255,255,255,.55) 85%,transparent 100%);animation:fxSpin 1.6s linear infinite;pointer-events:none;mix-blend-mode:overlay}
+@keyframes fxSpin{to{transform:rotate(360deg)}}
+.cell.locate{animation:fxLocate .5s ease-in-out 3;z-index:5}
+@keyframes fxLocate{50%{transform:scale(1.18);filter:brightness(1.3)}}
+.cell .own,.cell .no,.cell .meta{position:relative;z-index:1}
+.cell .vs,.cell .on{z-index:1}
+.locate-row{display:flex;justify-content:center;margin-top:10px}
+
+/* ---- 背景の星 ---- */
+#bg .st{position:absolute;bottom:-50px;opacity:.5;font-style:normal;animation:fxStar linear infinite;will-change:transform;pointer-events:none}
+@keyframes fxStar{to{transform:translateY(-118dvh) rotate(360deg)}}
+
+/* ---- 対戦画面 ---- */
+.bt-msg.pop{animation:fxCount .55s cubic-bezier(.2,1.8,.4,1)}
+@keyframes fxCount{0%{transform:scale(2.2);opacity:0}100%{transform:scale(1);opacity:1}}
+.fighter.you .avatar{animation:fxBob 1.4s ease-in-out infinite alternate}
+.fighter.win .avatar{animation:fxGlow 1s ease-in-out infinite;box-shadow:0 0 0 6px rgba(255,194,26,.6)}
+.fighter.lose{filter:grayscale(.85)}
+.result .crown{animation:fxBob .9s ease-in-out infinite alternate}
+.result .w1{animation:fxPop .6s cubic-bezier(.2,1.6,.4,1)}
+.gfill{animation:fxStripe .8s linear infinite}
+@keyframes fxStripe{from{background-position:0 0,0 0}to{background-position:16px 0,0 0}}
+.warn-note{margin:8px auto 0;max-width:520px;padding:8px 12px;border:3px solid var(--ink);border-radius:14px;background:#ffe3e3;color:#a1122a;font-weight:900;font-size:.9rem;text-align:center;animation:fxGlow 1.4s infinite}
+
+/* ---- 軽量モード（エフェクトOFF） ---- */
+body.fx-off #bg .st,body.fx-off .btn.big::after,body.fx-off .cell.fight::before{display:none}
+body.fx-off .logo b,body.fx-off .badge,body.fx-off .cell.mine,body.fx-off .pill.running,body.fx-off .fighter.you .avatar,body.fx-off .card,body.fx-off .hero-badge,body.fx-off .gfill{animation:none}
+@media (prefers-reduced-motion:reduce){#bg .st,.fl .in{animation:none}}

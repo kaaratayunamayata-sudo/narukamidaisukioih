@@ -4,7 +4,10 @@
 'use strict';
 
 const PAL = ['#ff4d6d', '#ff8a1f', '#19b5a5', '#3a86ff', '#8e44ec', '#2fbf71', '#ec4fa8', '#5b6cff'];
-const DUR = 5000, TIMEOUT = 120000, ONLINE = 30000;
+const DUR = 5000, TIMEOUT = 120000, ONLINE = 20000, BATTLE_ON = 12000;
+const FX = window.FX;
+const STAMPS = ['👍', '🔥', '😂', '👏', '🥩', '😭', '🎉', '😱', '💪', '🙏'];
+const SPEEDS = { eco: [2200, 900, 8000], normal: [1000, 450, 5000], fast: [600, 300, 4000] }; // [通常, 対戦中, 非表示中] ms
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -17,6 +20,7 @@ const S = {
   seenChat: null, unread: 0, chatOpen: false, justOpened: false,
   admin: null, adminOpen: false, adminTab: 'overview', reports: [], lastRep: 0,
   search: '', err: 0, prevOwners: null, lastPing: 0, raf: 0,
+  goFx: new Set(), fxDone: new Set(), knownVoid: null, prevEv: null, fxId: undefined, lastStamp: 0,
 };
 try { S.admin = sessionStorage.getItem('bp_admin'); S.storedMe = localStorage.getItem('bp_me'); S.token = localStorage.getItem('bp_token'); } catch {}
 
@@ -52,6 +56,7 @@ const testTag = (n) => (isTest(n) ? '<span class="tag test">TEST</span>' : '');
 const initial = (n) => (Array.from(String(n).replace(/^#/, ''))[0] || '?').toUpperCase();
 
 function isOn(n) { const p = S.presence[n]; return !!p && sNow() - p.t < ONLINE; }
+function isOnB(n) { const p = S.presence[n]; return !!p && sNow() - p.t < BATTLE_ON; } // 対戦用（サーバーと同じ基準）
 function statusOf(n) {
   const p = S.presence[n];
   if (!isOn(n)) return { on: false, label: 'オフライン' };
@@ -91,8 +96,11 @@ async function doSync(ping) {
   render();
 }
 async function loop() {
+  const myBattle = !!(S.me && S.game && S.game.battles.some((b) => b.c === S.me || b.d === S.me));
+  const viewing = !!(S.bv && findBattle(S.bv) && findBattle(S.bv).state !== 'done');
+  const busy = myBattle || viewing;
   try {
-    const ping = !!S.me && Date.now() - S.lastPing > 10000;
+    const ping = !!S.me && Date.now() - S.lastPing > (busy ? 2000 : 4000);
     await doSync(ping);
     if (ping) S.lastPing = Date.now();
     if (S.adminOpen && S.admin && Date.now() - S.lastRep > 5000) {
@@ -103,8 +111,8 @@ async function loop() {
   } catch (e) {
     if (++S.err > 2) $('#offline').hidden = false;
   }
-  const busy = S.bv && findBattle(S.bv) && findBattle(S.bv).state !== 'done';
-  setTimeout(loop, document.hidden ? 6000 : busy ? 700 : 1800);
+  const sp = SPEEDS[(S.game && S.game.rules && S.game.rules.speed) || 'normal'] || SPEEDS.normal;
+  setTimeout(loop, S.err ? Math.min(5000, 1200 * S.err) : document.hidden ? sp[2] : busy ? sp[1] : sp[0]);
 }
 
 /* ================= ログイン ================= */
@@ -136,7 +144,8 @@ async function doLogin(name) {
   } catch (e) { closeModal(); toast(e.message, 'err'); }
 }
 function enterApp() {
-  S.inApp = true; S.seenChat = null; S.unread = 0; S.prevOwners = null; S.knownDone = null;
+  S.inApp = true; S.seenChat = null; S.unread = 0; S.prevOwners = null; S.knownDone = null; S.knownVoid = null; S.prevEv = null; S.fxId = undefined;
+  FX.wake(!!S.me);
   $('#screen-login').hidden = true; $('#screen-app').hidden = false; $('#chatFab').hidden = false;
   $('#chatInput').disabled = !S.me;
   $('#chatInput').placeholder = S.me ? 'メッセージを入力…' : 'ログインするとチャットに参加できます';
@@ -148,7 +157,7 @@ async function forceLogout(msg) {
   leaveApp(); if (msg) toast(msg, 'err');
 }
 function leaveApp() {
-  closeBattle(true); closeModal(); $('#chat').hidden = true; S.chatOpen = false;
+  closeBattle(true); closeModal(); $('#chat').hidden = true; S.chatOpen = false; FX.wake(false); $('#stampTray').hidden = true;
   S.inApp = false; $('#screen-app').hidden = true; $('#chatFab').hidden = true; $('#screen-login').hidden = false;
   render();
 }
@@ -164,9 +173,11 @@ function render() {
   if (!S.game) return;
   if (!S.inApp) { renderLogin(); if (S.adminOpen) renderAdmin(); return; }
   renderHeader(); renderBanner(); renderBoard(); renderStats(); renderLive(); renderPlayers(); renderChat();
-  trackDone(); autoBattle();
+  trackEvent(); trackFx(); trackDone(); trackVoids(); autoBattle();
   if (S.bv) renderBattle();
   if (S.adminOpen) renderAdmin();
+  $('#stampFab').hidden = !(S.inApp && S.me); if ($('#stampFab').hidden) $('#stampTray').hidden = true;
+  document.body.classList.toggle('in-battle', !!S.bv);
   const live = S.game.battles.length;
   const lb = $('#liveBadge'); lb.hidden = !live; lb.textContent = live;
   document.title = (S.unread ? `(${S.unread}) ` : '') + 'ブロパス配布 第1回 陣取り争奪戦';
@@ -222,13 +233,14 @@ function renderBoard() {
     if (away) cls.push('away');
     if (prev && o && prev[c.n - 1] !== o) cls.push('pop');
     const st = o ? S.game.players[o] : null;
-    const meta = o ? (c.b ? '争奪中！' : away ? '🌙 オフライン' : st.b ? '勝率' + rate(st) : '新規') : '';
+    const meta = o ? (c.b ? '争奪中！' : away ? '🌙 オフライン' : st.s >= 2 ? '🔥' + st.s + '連勝' : st.b ? '勝率' + rate(st) : '新規') : '';
     return `<button class="${cls.join(' ')}" data-cell="${c.n}" style="${style}" aria-label="マス${c.n} ${o ? esc(o) : '空き'}">
       <span class="no">${c.n}</span>
       ${o ? `<span class="own">${esc(o)}</span>${isOn(o) ? '<i class="on"></i>' : ''}` : '<span class="empty">空き</span>'}
       ${c.b ? '<span class="vs">⚔</span>' : ''}<span class="meta">${meta}</span></button>`;
   }).join('');
-  setHTML($('#board'), html);
+  const changed = setHTML($('#board'), html);
+  if (changed && prev) $$('#board .cell.pop').forEach((el) => FX.cellFx(el, el.classList.contains('mine')));
   S.prevOwners = S.game.cells.map((c) => c.o);
 }
 
@@ -285,7 +297,9 @@ function renderLive() {
       <div class="vs-t"><b>🏆 ${esc(b.winner)} ${why}</b><span style="opacity:.7;font-size:.78rem">vs ${esc(lose)}</span></div>
       <button class="btn small ghost" data-act="watch" data-id="${b.id}">結果</button></div>`;
   }).join('') || '<div class="empty-note">まだ対戦結果はありません</div>';
-  setHTML($('#paneLive'), `<div class="sec-title">🔴 LIVE 対戦</div>${act}<div class="sec-title">🏁 最近の結果</div>${hist}`);
+  const vds = (g.voids || []).slice(0, 5).map((v) => `<div class="live-card"><span class="cell-no" style="margin:0;background:#b9b2c9">${v.cell}</span>
+      <div class="vs-t"><b>⚠ 対戦中止（勝敗なし）</b><span style="opacity:.7;font-size:.78rem">${esc(v.off.join('・'))} がオフライン</span></div></div>`).join('');
+  setHTML($('#paneLive'), `<div class="sec-title">🔴 LIVE 対戦</div>${act}<div class="sec-title">🏁 最近の結果</div>${hist}${vds ? '<div class="sec-title">⚠ 中止された対戦</div>' + vds : ''}`);
 }
 
 function renderPlayers() {
@@ -297,7 +311,7 @@ function renderPlayers() {
     rows.map((r, i) => {
       const st = statusOf(r.n);
       return `<div class="rank-row ${r.n === S.me ? 'me' : ''}"><div class="rank-no">${i + 1}</div>
-        <div class="rank-main"><div class="rank-name"><span class="dot ${st.on ? 'on' : ''}"></span><span>${esc(r.n)}</span>${testTag(r.n)}${r.p.banned ? '<span class="tag">停止</span>' : ''}</div>
+        <div class="rank-main"><div class="rank-name"><span class="dot ${st.on ? 'on' : ''}"></span><span>${esc(r.n)}</span>${testTag(r.n)}${r.p.s >= 2 ? `<span class="tag">🔥${r.p.s}連勝</span>` : ''}${r.p.banned ? '<span class="tag">停止</span>' : ''}</div>
         <div class="rank-sub">${st.label}・陣地 ${r.cells}マス・最終 ${lastSeen(r.n)}</div></div>
         <div class="rank-nums"><div><b>${r.p.w}</b>勝</div><div><b>${r.p.l}</b>敗</div><div><b>${r.p.b}</b>戦</div><div><b>${rate(r.p)}</b>勝率</div></div></div>`;
     }).join('') + '</div>';
@@ -353,13 +367,54 @@ async function claim(n) {
 function findBattle(id) { return S.game && (S.game.battles.find((b) => b.id === id) || S.game.history.find((b) => b.id === id)) || null; }
 function openBattle(id) {
   closeModal(); S.bv = id; S.dismissed.delete(id); S.btSig = '';
-  $('#battle').hidden = false; document.body.style.overflow = 'hidden';
+  $('#battle').hidden = false; document.body.style.overflow = 'hidden'; document.body.classList.add('in-battle');
   renderBattle(); cancelAnimationFrame(S.raf); S.raf = requestAnimationFrame(tick);
 }
 function closeBattle(silent) {
   if (S.bv) S.dismissed.add(S.bv);
-  S.bv = null; S.btSig = ''; $('#battle').hidden = true; document.body.style.overflow = '';
+  S.bv = null; S.btSig = ''; $('#battle').hidden = true; document.body.style.overflow = ''; document.body.classList.remove('in-battle');
   cancelAnimationFrame(S.raf);
+}
+function rankRows() {
+  const g = S.game;
+  const rows = realNames().map((n) => ({ n, p: g.players[n] }));
+  return rows.sort((a, b) => b.p.w - a.p.w || (b.p.b ? b.p.w / b.p.b : -1) - (a.p.b ? a.p.w / a.p.b : -1) || a.n.localeCompare(b.n));
+}
+function trackEvent() {
+  const ev = S.game.event.status;
+  if (S.prevEv && S.prevEv !== ev) {
+    if (ev === 'running' && S.prevEv === 'ready') {
+      FX.banner('<div class="big">EVENT<br>START!!</div><div class="sub">陣取り争奪戦、スタート！</div>', 3400);
+      FX.fireworks(6); FX.sfx('start'); FX.vibe([80, 40, 80]);
+    } else if (ev === 'ended') {
+      const top = rankRows().filter((r) => r.p.w > 0).slice(0, 3);
+      const med = ['🥇', '🥈', '🥉'], cl = ['p1', 'p2', 'p3'];
+      const pod = top.length ? `<div class="podium">${[1, 0, 2].filter((i) => top[i]).map((i) => `<div class="${cl[i]}">${med[i]}<br>${esc(top[i].n)}<small>${top[i].p.w}勝</small></div>`).join('')}</div>` : '';
+      FX.banner(`<div class="big">FINISH!</div><div class="sub">イベント終了！ 最終ランキング</div>${pod}`, 8000);
+      FX.fireworks(9); FX.sfx('end'); FX.vibe([100, 50, 100, 50, 200]);
+    }
+  }
+  S.prevEv = ev;
+}
+function trackFx() {
+  const f = S.game.fx;
+  if (S.fxId === undefined) { S.fxId = f ? f.id : 0; return; }
+  if (f && f.id !== S.fxId) { S.fxId = f.id; if (sNow() - f.at < 20000) FX.play(f.type); }
+}
+function trackVoids() {
+  const vs = S.game.voids || [];
+  if (!S.knownVoid) { S.knownVoid = new Set(vs.map((v) => v.id + ':' + v.at)); return; }
+  for (const v of vs) {
+    const k = v.id + ':' + v.at;
+    if (S.knownVoid.has(k)) continue;
+    S.knownVoid.add(k);
+    if (S.me && (v.c === S.me || v.d === S.me)) {
+      const other = v.c === S.me ? v.d : v.c;
+      toast(v.off.includes(S.me) ? `⚠ 通信が途切れたため、マス #${v.cell} の対戦は中止になりました（勝敗なし）` : `⚠ ${other} がオフラインになったため、マス #${v.cell} の対戦は中止になりました（勝敗なし）`, 'err');
+      FX.sfx('warn'); FX.vibe([120, 60, 120]);
+      if (S.bv === v.id) closeBattle(true);
+    }
+  }
 }
 function trackDone() {
   const ids = S.game.history.map((b) => b.id);
@@ -367,7 +422,7 @@ function trackDone() {
   for (const b of S.game.history) {
     if (S.knownDone.has(b.id)) continue;
     S.knownDone.add(b.id);
-    if (S.me && (b.c === S.me || b.d === S.me) && S.bv !== b.id) toast(b.winner === S.me ? `🏆 マス #${b.cell} の争奪戦に勝ちました！` : `マス #${b.cell} の争奪戦は負けました…`, b.winner === S.me ? 'ok' : 'err');
+    if (S.me && (b.c === S.me || b.d === S.me) && S.bv !== b.id) { toast(b.winner === S.me ? `🏆 マス #${b.cell} の争奪戦に勝ちました！` : `マス #${b.cell} の争奪戦は負けました…`, b.winner === S.me ? 'ok' : 'err'); if (b.winner === S.me) FX.win(false); else FX.lose(); }
   }
 }
 function autoBattle() {
@@ -375,6 +430,7 @@ function autoBattle() {
   const mine = S.game.battles.find((b) => b.c === S.me || b.d === S.me);
   if (mine && !S.dismissed.has(mine.id) && S.bv !== mine.id) {
     openBattle(mine.id);
+    if (mine.d === S.me) { FX.sfx('alarm'); FX.vibe([200, 100, 200]); FX.flash('#ff3b4e'); }
     toast(mine.d === S.me ? `⚔ ${mine.c} がマス #${mine.cell} に挑戦してきた！` : '対戦画面を開きました', 'err');
   }
 }
@@ -384,7 +440,7 @@ function fighter(b, name, side, role) {
   if (done) cls.push(b.winner === name ? 'win' : 'lose');
   if (name === S.me) cls.push('you');
   const st = [];
-  st.push(`<span><span class="dot ${isOn(name) ? 'on' : ''}"></span> ${isOn(name) ? 'オンライン' : 'オフライン'}</span>`);
+  st.push(`<span><span class="dot ${isOnB(name) ? 'on' : ''}"></span> ${isOnB(name) ? 'オンライン' : 'オフライン'}</span>`);
   if (b.state === 'pending' && b.ready[name]) st.push('<span class="tag win">✔ 準備OK</span>');
   if (b.state === 'running' && b.stopped.includes(name)) st.push('<span class="tag win">STOP済み</span>');
   const p = S.game.players[name];
@@ -398,10 +454,17 @@ function renderBattle() {
   const done = b.state === 'done';
   const my = role ? S.myStop[b.id + ':' + b.round] : null;
   const stoppedMe = role && ((b.stopped || []).includes(S.me) || !!my);
-  const sig = [b.state, b.round, b.startAt, JSON.stringify(b.ready), (b.stopped || []).join(), b.winner, my ? my.pos : '', role, isOn(b.c), isOn(b.d)].join('|');
+  const sig = [b.state, b.round, b.startAt, JSON.stringify(b.ready), (b.stopped || []).join(), b.winner, my ? my.pos : '', role, isOnB(b.c), isOnB(b.d)].join('|');
   if (sig === S.btSig) return;
   S.btSig = sig;
 
+  const opp = role ? (role === 'c' ? b.d : b.c) : null;
+  const oppOff = !!opp && !done && !isOnB(opp) && !(b.stopped || []).includes(opp);
+  const warn = oppOff ? '<div class="warn-note">⚠ 相手がオフラインです。このままだと対戦は中止になります（勝敗なし）</div>' : '';
+  if (done && !S.fxDone.has(b.id)) {
+    S.fxDone.add(b.id);
+    if (b.doneAt && sNow() - b.doneAt < 15000) { if (role) { if (b.winner === S.me) FX.win(true); else FX.lose(); } else FX.win(false); }
+  }
   let pins = '';
   if (done && b.rec) {
     const pc = b.rec[b.c], pd = b.rec[b.d];
@@ -423,7 +486,7 @@ function renderBattle() {
   if (done || !role) acts = `<button class="btn big" data-act="bclose">閉じる</button>`;
   else if (b.state === 'pending') {
     const rdy = b.ready[S.me];
-    acts = `<button class="btn green big" data-act="bready" ${rdy ? 'disabled' : ''}>${rdy ? '相手の準備を待っています…' : '✔ 準備OK！'}</button>
+    acts = `<button class="btn green big" data-act="bready" ${rdy || oppOff ? 'disabled' : ''}>${oppOff ? '相手がオフラインです…' : rdy ? '相手の準備を待っています…' : '✔ 準備OK！'}</button>
       ${role === 'c' ? '<button class="btn ghost" data-act="bcancel">取り下げる</button>' : '<button class="btn ghost" data-act="bconcede">降参する</button>'}
       <button class="btn purple" id="bt-forfeit" data-act="bforfeit" hidden disabled>不戦勝を申請</button>
       <button class="btn ghost small" data-act="bclose">画面を閉じる</button>`;
@@ -436,7 +499,7 @@ function renderBattle() {
       <div class="bt-mid"><div class="bt-msg" id="bt-msg"></div>
         <div class="gauge"><div class="gbar"><div class="clip"><div class="gfill" id="bt-fill"></div><div class="gmask" id="bt-mask" hidden>？？？</div></div>
         <div class="gtarget"><span>ちょうど半分</span></div>${pins}</div><div class="gscale"><span>0</span><span>🥩 お肉の長さ</span><span>100</span></div></div>
-        <div class="bt-time" id="bt-time"></div>
+        <div class="bt-time" id="bt-time"></div>${warn}
         ${my ? `<div class="spec-note">あなたの記録：<b>${my.pos}%</b>（目標との差 ${Math.abs(my.pos - 50).toFixed(2)}）— 結果をお待ちください</div>` : ''}
         ${!role && !done ? '<div class="spec-note">👀 観戦モード（操作はできません）</div>' : ''}
         ${role && !done && b.state === 'running' && !stoppedMe ? '<div class="spec-note">途中からお肉が見えなくなります！ スペースキーでもストップできます</div>' : ''}</div>
@@ -479,7 +542,11 @@ function updateGauge(b) {
     time = `残り ${(Math.max(0, b.startAt + DUR - t) / 1000).toFixed(1)}秒`;
   }
   const m = $('#bt-msg');
-  if (m && S.lastMsg !== msg) { S.lastMsg = msg; m.textContent = msg; m.className = 'bt-msg' + (cd ? ' cd' : ''); }
+  if (m && S.lastMsg !== msg) {
+    S.lastMsg = msg; m.textContent = msg; m.className = 'bt-msg' + (cd ? ' cd' : '') + ' pop';
+    if (cd && role) FX.sfx('tick');
+  }
+  if (!done && b.state === 'running' && t >= b.startAt && role) { const k = b.id + ':' + b.round; if (!S.goFx.has(k)) { S.goFx.add(k); FX.sfx('go'); FX.flash('#fff'); FX.vibe(60); } }
   const tm = $('#bt-time'); if (tm && tm.textContent !== time) tm.textContent = time;
   const fill = $('#bt-fill'); if (fill) fill.style.width = pos + '%';
   const mask = $('#bt-mask'); if (mask) mask.hidden = !(role && !done && pos > 30);
@@ -498,6 +565,7 @@ async function doStop() {
   const role = b.c === S.me || b.d === S.me;
   if (!role || sNow() < b.startAt || S.myStop[b.id + ':' + b.round] || (b.stopped || []).includes(S.me)) return;
   S.stopping = true;
+  FX.sfx('stop'); FX.shake($('#battleBody')); FX.flash('#ffc21a'); FX.vibe(40);
   try {
     const d = await api('stop', { ...auth(), id: b.id });
     S.myStop[b.id + ':' + b.round] = { pos: d.pos };
@@ -538,13 +606,14 @@ function onChat(c) {
   if (first) S.seenChat = maxId;
   else {
     const fresh = c.msgs.filter((m) => m.id > S.seenChat && m.n !== S.me && !m.del);
-    if (S.chatOpen) S.seenChat = maxId;
-    else if (fresh.length) {
-      S.unread += fresh.length; S.seenChat = maxId;
-      const l = fresh[fresh.length - 1];
+    S.seenChat = Math.max(S.seenChat, maxId);
+    if (fresh.length && !S.chatOpen) {
+      S.unread += fresh.length;
+      fresh.slice(-5).forEach((m) => FX.floatMsg(m)); // 画面にふわふわ流す
+      FX.sfx('chat');
       const fighting = S.me && S.game && S.game.battles.some((b) => b.c === S.me || b.d === S.me);
-      if (!fighting) chatToast(l, fresh.length); // 対戦中はバッジだけ（STOPの邪魔をしない）
-    } else S.seenChat = Math.max(S.seenChat, maxId);
+      if (!FX.cfg.float && !fighting) chatToast(fresh[fresh.length - 1], fresh.length); // 流れるチャットOFFの時だけ通知バナー
+    }
   }
   S.chat = c; S.chatVer = c.ver;
 }
@@ -575,11 +644,28 @@ function openChat() {
 function closeChat() { S.chatOpen = false; $('#chat').hidden = true; $('#chatFab').hidden = !S.inApp; }
 async function sendChat(text) {
   if (!S.me) { toast('ログインするとチャットに参加できます', 'err'); return; }
-  try { await api('chat', { ...auth(), text }); S.justOpened = true; await doSync(false); }
+  try { await api('chat', { ...auth(), text }); S.justOpened = true; FX.floatMsg({ n: S.me, t: text, me: true }); await doSync(false); }
   catch (e) { toast(e.message, 'err'); if (e.code === 'session') forceLogout(e.message); }
 }
 
 /* ================= 管理画面 ================= */
+function openSettings() {
+  const c = FX.cfg;
+  const row = (k, t, d) => `<div class="set-row"><div>${t}<small>${d}</small></div><button class="sw ${c[k] ? 'on' : ''}" data-fx="${k}">${c[k] ? 'ON' : 'OFF'}</button></div>`;
+  openModal(`<h3 style="margin:0 0 6px">⚙ 設定</h3>${row('sound', '🔊 効果音', '確保・対戦・勝利などの音')}${row('fx', '✨ エフェクト', '紙吹雪・花火・背景の動き。動作が重い端末はOFFが快適')}${row('float', '💭 流れるチャット', '新着メッセージが画面にふわふわ流れます')}${row('vibe', '📳 振動', 'スマホで対戦の合図や勝利時に振動')}<div class="btn-row"><button class="btn wide" data-act="mclose">閉じる</button></div>`);
+}
+function locateMine() {
+  const el = $('#board .cell.mine');
+  if (!el) { toast(S.me ? 'まだ陣地がありません。空きマスを選ぼう！' : 'ログインすると自分のマスを探せます', 'err'); return; }
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  el.classList.add('locate'); setTimeout(() => el.classList.remove('locate'), 1700);
+  const r = el.getBoundingClientRect(); FX.shock(r.left + r.width / 2, r.top + r.height / 2, '#ffc21a'); FX.sfx('pop');
+}
+function sendStamp(e) {
+  const b = e.target.closest('[data-stamp]'); if (!b) return;
+  if (Date.now() - S.lastStamp < 1100) return; // 連打防止（サーバーも1秒制限）
+  S.lastStamp = Date.now(); FX.sfx('tap'); sendChat(b.dataset.stamp);
+}
 function adminErr(e) {
   if (e && e.code === 'admin') { S.admin = null; try { sessionStorage.removeItem('bp_admin'); } catch {} toast('管理者認証の有効期限が切れました', 'err'); renderAdmin(); }
 }
@@ -639,6 +725,11 @@ function renderAdmin() {
       <button class="btn ${noBattle() ? 'ghost' : 'green'}" ${ad('setRules', { battle: true })}>⚔ 対戦あり（通常）</button>
       <button class="btn ${noBattle() ? 'purple' : 'ghost'}" ${ad('setRules', { battle: false })}>🕊 対戦なし（位置選択のみ）</button></div>
       <small style="opacity:.8">現在: <b>${noBattle() ? '対戦なし' : '対戦あり'}</b>。対戦なし中も、空きマスの確保・移動はできます。すでに始まっている対戦は続行されます。</small>
+      <div class="sec-title">⚡ 通信速度（リアルタイム度）</div><div class="btn-row">
+      ${[['eco', '🐢 節約'], ['normal', '⚖ 通常'], ['fast', '🚀 高速']].map(([k, l]) => `<button class="btn small ${(g.rules.speed || 'normal') === k ? 'blue' : 'ghost'}" ${ad('setRules', { speed: k })}>${l}</button>`).join('')}</div>
+      <small style="opacity:.8">節約=約2秒ごと／通常=約1秒／高速=約0.6秒（対戦中はさらに速く同期）。速いほどNetlifyの関数呼び出し回数が増えます。</small>
+      <div class="sec-title">🎆 全員の画面に演出を送る</div><div class="btn-row">
+      ${[['fireworks', '🎆 花火'], ['confetti', '🎉 紙吹雪'], ['meat', '🥩 お肉の雨'], ['stars', '⭐ 星の雨']].map(([k, l]) => `<button class="btn small ghost" ${ad('fx', { type: k })}>${l}</button>`).join('')}</div>
       <div class="sec-title">⏱ 自動終了タイマー</div><div class="btn-row">
       ${[10, 30, 60].map((m) => `<button class="btn small ghost" ${ad('setTimer', { minutes: m })}>${m}分後に終了</button>`).join('')}
       <button class="btn small ghost" data-act="adminTimerCustom">分数を指定…</button>
@@ -694,6 +785,13 @@ function bind() {
   $('#paneLive').addEventListener('click', (e) => { const b = e.target.closest('[data-act="watch"]'); if (b) openBattle(+b.dataset.id); });
   $('#banner').addEventListener('click', (e) => { const b = e.target.closest('[data-act="openMine"]'); if (b) openBattle(+b.dataset.id); });
   $('#chatFab').addEventListener('click', openChat);
+  $('#btnSettings').addEventListener('click', openSettings);
+  $('#btnLocate').addEventListener('click', locateMine);
+  const stampHtml = STAMPS.map((x) => `<button type="button" data-stamp="${x}" aria-label="スタンプ ${x}">${x}</button>`).join('');
+  $('#stampTray').innerHTML = stampHtml; $('#chatStamps').innerHTML = stampHtml;
+  $('#stampTray').addEventListener('click', sendStamp); $('#chatStamps').addEventListener('click', sendStamp);
+  $('#stampFab').addEventListener('click', (e) => { e.stopPropagation(); const t = $('#stampTray'); t.hidden = !t.hidden; FX.sfx('tap'); });
+  document.addEventListener('click', (e) => { const t = $('#stampTray'); if (!t.hidden && !e.target.closest('#stampTray') && !e.target.closest('#stampFab')) t.hidden = true; });
   $('#btnChatTop').addEventListener('click', () => (S.chatOpen ? closeChat() : openChat()));
   $('#chatClose').addEventListener('click', closeChat);
   $('#chatForm').addEventListener('submit', (e) => { e.preventDefault(); const i = $('#chatInput'), t = i.value.trim(); if (!t) return; i.value = ''; sendChat(t); });
@@ -704,6 +802,8 @@ function bind() {
   });
   $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
   $('#modalBody').addEventListener('click', (e) => {
+    const f = e.target.closest('[data-fx]');
+    if (f) { FX.set(f.dataset.fx, !FX.cfg[f.dataset.fx]); openSettings(); return; }
     const b = e.target.closest('[data-act]'); if (!b) return;
     const a = b.dataset.act;
     if (a === 'loginOK') doLogin(b.dataset.name);
@@ -753,11 +853,11 @@ function bind() {
     if (e.target.id !== 'adminPost') return; e.preventDefault();
     const i = $('#adminPostText'), t = i.value.trim(); if (!t) return; i.value = ''; adminCall('chatPost', { text: t });
   });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && S.game) doSync(false).catch(() => {}); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && S.game) { doSync(!!S.me).then(() => { if (S.me) S.lastPing = Date.now(); }).catch(() => {}); } });
 }
 
 async function boot() {
-  bind();
+  bind(); FX.initBg();
   $('#loginList').innerHTML = '<div class="empty-note">読み込み中…</div>';
   try { await doSync(false); } catch (e) { toast(e.message, 'err'); }
   if (S.storedMe && S.token) {

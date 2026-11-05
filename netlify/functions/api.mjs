@@ -12,7 +12,8 @@ export const C = {
   COUNTDOWN: 4000, // 開始までのカウントダウン(ms)
   REMATCH: 5000, // 同点再戦までの時間(ms)
   PENDING_TIMEOUT: 120000, // 準備OKを待つ時間(ms)
-  ONLINE_MS: 30000, // これ以内にpingがあればオンライン
+  ONLINE_MS: 20000, // これ以内にpingがあればオンライン
+  BATTLE_OFF_MS: 12000, // 対戦中・準備待ちの相手がこれ以上pingしないと「オフライン」とみなして対戦を中止
   CHAT_MAX: 200,
   CHAT_KEEP: 150,
   ADMIN_TTL: 8 * 3600 * 1000,
@@ -60,7 +61,9 @@ const initGame = () => ({
   ver: 1,
   seq: 0,
   event: { status: "ready", startedAt: null, endedAt: null, endsAt: null }, // ready / running / ended（endsAt=自動終了時刻）
-  rules: { battle: true }, // battle=false で「対戦なしモード」（空きマスの確保・移動だけ可能）
+  voids: [], // 相手オフラインなどで中止になった対戦の記録
+  fx: null, // 運営が全員に送る演出 { id, type, at }
+  rules: { battle: true, speed: "normal" }, // battle=false で「対戦なしモード」（空きマスの確保・移動だけ可能）
   notice: null, // 運営からの固定お知らせ
   names: [...PLAYERS], // 参加者の並び順（初期参加者 + 運営が作ったテスト参加者）
   cells: Array.from({ length: C.CELLS }, (_, i) => ({ n: i + 1, owner: null, battle: null, at: null })),
@@ -137,6 +140,8 @@ function finish(g, b, winner, reason, now) {
   g.players[b.d].b++;
   g.players[winner].w++;
   g.players[loser].l++;
+  g.players[winner].s = (g.players[winner].s || 0) + 1; // 連勝
+  g.players[loser].s = 0;
   b.state = "done";
   b.winner = winner;
   b.reason = reason; // game / forfeit / concede / admin
@@ -182,11 +187,13 @@ function settle(g, now) {
 }
 
 // 旧データ（6x6・names無し）を現在の仕様に合わせる
-const needsFix = (g) => !Array.isArray(g.names) || g.cells.length !== C.CELLS || !g.rules;
+const needsFix = (g) => !Array.isArray(g.names) || g.cells.length !== C.CELLS || !g.rules || !g.rules.speed || !g.voids;
 const timerDue = (g, now) => g.event.status === "running" && g.event.endsAt && now >= g.event.endsAt;
 function normGame(g) {
   if (!Array.isArray(g.names)) g.names = [...PLAYERS];
   if (!g.rules) g.rules = { battle: true };
+  if (!g.rules.speed) g.rules.speed = "normal";
+  if (!Array.isArray(g.voids)) g.voids = [];
   if (g.event.endsAt === undefined) g.event.endsAt = null;
   for (const n of g.names) if (!g.players[n]) g.players[n] = { b: 0, w: 0, l: 0, banned: false };
   // マスが減った場合: はみ出したマスの争奪戦は取り消し、陣地は消える
@@ -198,7 +205,28 @@ function normGame(g) {
   while (g.cells.length < C.CELLS) g.cells.push({ n: g.cells.length + 1, owner: null, battle: null, at: null });
 }
 
-async function mutGame(fn) {
+// ---------- 相手がオフラインの対戦は成立させない ----------
+const battleOff = (pres, n, now) => !pres[n] || now - pres[n].t > C.BATTLE_OFF_MS;
+// 中止すべき対戦と、オフラインの人を返す
+function offlineBattles(g, pres, now) {
+  const out = [];
+  for (const b of Object.values(g.battles)) {
+    if (b.state !== "pending" && b.state !== "running") continue;
+    // 準備待ち: 双方が必要。対戦中: まだSTOPしていない人がオフラインなら中止
+    const off = [b.c, b.d].filter((n) => battleOff(pres, n, now) && (b.state === "pending" || !b.rec[n]));
+    if (off.length) out.push({ b, off });
+  }
+  return out;
+}
+function voidOffline(g, pres, now) {
+  for (const { b, off } of offlineBattles(g, pres, now)) {
+    cancelBattle(g, b);
+    g.voids.unshift({ id: b.id, cell: b.cell, c: b.c, d: b.d, off, at: now, phase: b.state });
+  }
+  g.voids.length = Math.min(g.voids.length, 20);
+}
+
+async function mutGame(fn, pres) {
   const now = Date.now();
   return mutate("game", "g", initGame, (g) => {
     normGame(g);
@@ -207,6 +235,7 @@ async function mutGame(fn) {
       g.event.status = "ended";
       g.event.endedAt = g.event.endsAt;
     }
+    if (pres) voidOffline(g, pres, now);
     const r = fn(g, now);
     g.ver++;
     return r;
@@ -263,8 +292,10 @@ function viewGame(g) {
   return {
     ver: g.ver,
     event: g.event,
-    rules: g.rules || { battle: true },
+    rules: g.rules || { battle: true, speed: "normal" },
     notice: g.notice || null,
+    voids: (g.voids || []).slice(0, 10),
+    fx: g.fx || null,
     cells: g.cells.map((c) => ({ n: c.n, o: c.owner, b: c.battle, at: c.at })),
     players: g.players,
     // 進行中の記録は誰にも見せない（stopped = 止めたかどうかだけ）
@@ -325,14 +356,13 @@ async function route(b) {
         }
       }
       let g = g0;
-      if (needsSettle(g, now) || needsFix(g) || timerDue(g, now)) {
-        await mutGame(() => {});
+      const pres = presence || (await readJSON("presence", "p", () => ({})));
+      const dueVoid = Object.keys(g.battles || {}).length > 0 && offlineBattles(g, pres, now).length > 0;
+      if (needsSettle(g, now) || needsFix(g) || timerDue(g, now) || dueVoid) {
+        await mutGame(() => {}, pres);
         g = await readJSON("game", "g", initGame);
       }
-      const [pres, chat] = await Promise.all([
-        presence ? Promise.resolve(presence) : readJSON("presence", "p", () => ({})),
-        readJSON("chat", "c", initChat),
-      ]);
+      const chat = await readJSON("chat", "c", initChat);
       return {
         now: Date.now(),
         names: namesOf(g),
@@ -384,10 +414,13 @@ async function route(b) {
 
     case "ready": {
       await auth(b.name, b.token);
+      const pres = await readJSON("presence", "p", () => ({}));
       return mutGame((g, t) => {
         notBanned(g, b.name);
         const bt = battleOf(g, b.id, b.name);
         if (bt.state !== "pending") fail("state", "準備の受付は終了しています");
+        const other = b.name === bt.c ? bt.d : bt.c;
+        if (battleOff(pres, other, t)) fail("offline", `${other} がオフラインのため、いまは勝負できません`);
         bt.ready[b.name] = true;
         if (bt.ready[bt.c] && bt.ready[bt.d]) {
           bt.state = "running";
@@ -539,6 +572,7 @@ async function adminOp(b) {
         g.cells = fresh.cells;
         g.battles = {};
         g.history = [];
+        g.voids = [];
         g.players = {};
         for (const k of g.names) {
           g.players[k] = { b: 0, w: 0, l: 0, banned: !!(old[k] && old[k].banned) };
@@ -618,9 +652,17 @@ async function adminOp(b) {
     // ---------- モード・お知らせ・タイマー ----------
     case "setRules":
       return mutGame((g) => {
-        g.rules.battle = b.battle !== false;
+        if (b.battle !== undefined) g.rules.battle = b.battle !== false;
+        if (["eco", "normal", "fast"].includes(b.speed)) g.rules.speed = b.speed;
         return {};
       });
+    case "fx": {
+      if (!["fireworks", "confetti", "meat", "stars"].includes(b.type)) fail("bad", "不明な演出です");
+      return mutGame((g, t) => {
+        g.fx = { id: ++g.seq, type: b.type, at: t };
+        return {};
+      });
+    }
     case "setNotice": {
       const text = String(b.text || "").trim().slice(0, 120);
       return mutGame((g) => {
