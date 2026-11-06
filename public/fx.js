@@ -58,6 +58,11 @@ const SND = {
   start() { [N.C5, N.G5, N.C6, N.E6, N.C6, N.E6, N.G5, N.C6].forEach((f, i) => tone(f, 0.2, 'square', 0.15, i * 0.1)); },
   end() { [N.E6, N.C6, N.G5, N.E5, N.C5].forEach((f, i) => tone(f, 0.28, 'triangle', 0.26, i * 0.14)); },
   warn() { tone(300, 0.25, 'sawtooth', 0.22); tone(220, 0.35, 'sawtooth', 0.22, 0.22); },
+  drum() { for (let i = 0; i < 16; i++) tone(i % 2 ? 130 : 105, 0.08, 'triangle', 0.24, i * 0.07, 55); },
+  fanfare() {
+    [[N.C5, 0], [N.C5, 0.13], [N.C5, 0.26], [N.G5, 0.4], [N.E5, 0.62], [N.G5, 0.76], [N.C6, 1.0]].forEach(([f, d]) => tone(f, 0.3, 'square', 0.18, d));
+    tone(N.C6, 0.9, 'triangle', 0.28, 1.0); tone(N.E6, 0.9, 'triangle', 0.18, 1.0);
+  },
   fw() { tone(220, 0.35, 'sawtooth', 0.14, 0, 40); tone(1500, 0.12, 'sine', 0.1, 0.05, 300); },
 };
 const sfx = (n) => { try { if (SND[n]) SND[n](); } catch {} };
@@ -172,6 +177,49 @@ function play(type) {
   else if (type === 'stars') { rain('⭐', 40); sfx('claim'); }
 }
 
+/* ---------- 当選者発表の特別演出 ----------
+   ルーレットで名前が高速で入れ替わり → だんだん遅くなって → 当選者が確定（花火・紙吹雪・ファンファーレ）。
+   quick=true は途中参加の人向け（ルーレット省略）。画面タップでスキップ可。 */
+function drawShow(winner, names, opts = {}) {
+  const { quick = false, onDone } = opts;
+  const old = $('#drawStage'); if (old) old.remove();
+  const el = document.createElement('div');
+  el.id = 'drawStage'; el.className = 'draw-stage' + (cfg.fx ? '' : ' plain');
+  el.innerHTML = '<div class="ds-in"><div class="ds-title">WINNER ANNOUNCEMENT</div><div class="ds-lead">当選者を発表します！</div>' +
+    '<div class="ds-slot"><span>？？？</span></div><div class="ds-sub"></div><button type="button" class="btn big ds-next" hidden>つづきを見る ▶</button></div>';
+  document.body.appendChild(el);
+  const slot = el.querySelector('.ds-slot span'), lead = el.querySelector('.ds-lead'), nx = el.querySelector('.ds-next');
+  const timers = []; let closed = false, revealed = false;
+  const later = (fn, ms) => timers.push(setTimeout(fn, ms));
+  const close = () => { if (closed) return; closed = true; timers.forEach(clearTimeout); el.remove(); if (onDone) onDone(); };
+  const reveal = () => {
+    if (revealed || closed) return; revealed = true; timers.forEach(clearTimeout);
+    slot.textContent = winner; el.classList.add('reveal'); lead.textContent = '🎉 おめでとうございます！ 🎉';
+    sfx('fanfare'); vibe([80, 40, 80, 40, 200]);
+    if (cfg.fx) {
+      flash('#ffffff');
+      const w = window.innerWidth, h = window.innerHeight;
+      confetti(w / 2, h * 0.5, quick ? 70 : 150, Math.PI * 1.3, 13);
+      if (!quick) { confetti(w * 0.15, h * 0.75, 60, 1.2, 11); confetti(w * 0.85, h * 0.75, 60, 1.2, 11); }
+      fireworks(quick ? 3 : 8);
+    }
+    later(() => { nx.hidden = false; }, quick ? 300 : 1600);
+  };
+  nx.addEventListener('click', (e) => { e.stopPropagation(); close(); });
+  el.addEventListener('click', () => { if (!revealed) reveal(); }); // ルーレット中のタップ = スキップ
+  if (quick || !cfg.fx) { later(reveal, 200); return { close }; }
+  const pool = (names || []).filter((n) => n !== winner); if (!pool.length) pool.push('…');
+  const steps = 28; let at = 400, prev = '';
+  sfx('drum');
+  for (let i = 0; i < steps; i++) {
+    const d = 70 + Math.pow(i / steps, 2) * 420; at += d;
+    later(() => { let n; do { n = pick(pool); } while (n === prev && pool.length > 1); prev = n; slot.textContent = n; slot.classList.remove('tick'); void slot.offsetWidth; slot.classList.add('tick'); sfx('tick'); vibe(8); }, at);
+  }
+  later(() => { slot.textContent = '…'; lead.textContent = '当選者は……'; }, at + 500);
+  later(reveal, at + 1500);
+  return { close };
+}
+
 /* ---------- 流れるチャット ---------- */
 let lane = 0;
 function floatMsg(m) {
@@ -225,5 +273,5 @@ document.addEventListener('pointerdown', (e) => {
 }, { passive: true });
 
 applyBody();
-window.FX = { cfg, set, sfx, vibe, confetti, burst, rain, fireworks, shock, flash, shake, banner, cellFx, win, lose, play, floatMsg, wake, initBg };
+window.FX = { cfg, set, sfx, vibe, confetti, burst, rain, fireworks, shock, flash, shake, banner, cellFx, win, lose, play, drawShow, floatMsg, wake, initBg };
 })();

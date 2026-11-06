@@ -309,4 +309,69 @@ assert.equal((await call("claim", { name: B, token: tb, cell: 1 })).error, "not_
   assert.equal((await call("admin", { adminToken, op: "fx", type: "evil" })).ok, false);
 }
 
+// ---------- 当選者発表（スーパーレアスタードロップ） ----------
+{
+  const st = ok(await call("sync", { gameVer: 0, chatVer: 0 }));
+  const real = st.names.filter((n) => !st.game.players[n].test);
+  for (const n of real) {
+    ok(await call("admin", { adminToken, op: "unban", name: n }));
+    ok(await call("admin", { adminToken, op: "kick", name: n }));
+  }
+  const tok = {};
+  for (const n of real) tok[n] = ok(await call("login", { name: n })).token;
+  const winner = real[3], others = real.length - 1;
+
+  assert.equal((await call("admin", { op: "announce", winner })).ok, false, "認証なしは拒否");
+  assert.equal((await call("admin", { adminToken, op: "announce", winner: "nobody" })).error, "name");
+  assert.equal(ok(await call("myPrize", { name: real[0], token: tok[real[0]] })).draw, null, "発表前は結果なし");
+
+  const r = ok(await call("admin", { adminToken, op: "announce", winner }));
+  assert.equal(r.given, 16);
+  assert.equal(r.lost, others - 16);
+  assert.equal((await call("admin", { adminToken, op: "announce", winner: real[0] })).error, "drawn", "二重発表は拒否");
+
+  // 公開データには当選者の名前だけ。リンクも割り当ても漏れない
+  const pub = ok(await call("sync", { gameVer: 0, chatVer: 0 })).game;
+  assert.deepEqual(Object.keys(pub.draw).sort(), ["at", "id", "winner"]);
+  assert.equal(pub.draw.winner, winner);
+  assert.ok(!JSON.stringify(pub).includes("brawlstars"));
+
+  // 全員の結果: 当選者1 / リンク16(全部別) / 落選のみ
+  const urls = new Set();
+  let w = 0, v = 0, l = 0;
+  for (const n of real) {
+    const x = ok(await call("myPrize", { name: n, token: tok[n] }));
+    if (x.status === "winner") { w++; assert.equal(n, winner); assert.equal(x.url, undefined); }
+    else if (x.status === "voucher") { v++; assert.match(x.url, /^https:\/\/link\.brawlstars\.com\/voucher\/[0-9a-f-]{36}$/); assert.ok(!urls.has(x.url), "リンク重複なし"); urls.add(x.url); }
+    else if (x.status === "lost") { l++; assert.equal(x.url, undefined); }
+    else assert.fail("想定外の結果: " + x.status);
+  }
+  assert.deepEqual([w, v, l], [1, 16, others - 16]);
+  assert.equal((await call("myPrize", { name: real[0], token: tok[real[1]] })).ok, false, "他人のトークンでは結果を取れない");
+  assert.equal((await call("myPrize", { name: real[0] })).ok, false);
+
+  // 運営だけが全員分の割り当てを見られる
+  const adm = ok(await call("adminData", { adminToken }));
+  assert.equal(Object.keys(adm.draw.assign).length, 16);
+  assert.equal(adm.vouchers, 16);
+  assert.equal((await call("adminData", {})).ok, false);
+
+  // 再演出: idだけ変わり、割り当ては変わらない
+  const before = JSON.stringify((ok(await call("adminData", { adminToken }))).draw.assign);
+  const id0 = pub.draw.id;
+  ok(await call("admin", { adminToken, op: "replayDraw" }));
+  assert.notEqual(ok(await call("sync", { gameVer: 0, chatVer: 0 })).game.draw.id, id0);
+  assert.equal(JSON.stringify((ok(await call("adminData", { adminToken }))).draw.assign), before);
+
+  // 取消 → 再発表できる（テスト参加者は抽選対象外）
+  ok(await call("admin", { adminToken, op: "cancelDraw" }));
+  assert.equal(ok(await call("sync", { gameVer: 0, chatVer: 0 })).game.draw, null);
+  const r2 = ok(await call("admin", { adminToken, op: "announce", winner: real[0], onlyJoined: true }));
+  assert.equal(r2.given + r2.lost, others);
+  const draw2 = ok(await call("adminData", { adminToken })).draw;
+  assert.ok(!Object.keys(draw2.assign).includes(real[0]), "当選者にはリンクを配らない");
+  assert.ok(!Object.keys(draw2.assign).some((n) => st.game.players[n]?.test), "テスト参加者には配らない");
+  ok(await call("admin", { adminToken, op: "cancelDraw" }));
+}
+
 console.log("ALL TESTS PASSED");

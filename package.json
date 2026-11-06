@@ -1,1 +1,10 @@
-{"name":"marble-race","private":true,"dependencies":{"@netlify/blobs":"^8.1.0"}}
+{
+  "name": "bropass-event",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ブロパス配布 第1回 陣取り争奪戦",
+  "dependencies": {
+    "@netlify/blobs": ">=8.2.0"
+  }
+}

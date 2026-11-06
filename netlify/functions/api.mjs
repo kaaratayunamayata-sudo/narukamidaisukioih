@@ -3,6 +3,7 @@
 import { getStore } from "@netlify/blobs";
 import crypto from "node:crypto";
 import { PLAYERS } from "./lib/players.mjs";
+import { VOUCHERS } from "./lib/vouchers.mjs";
 
 export const C = {
   CELLS: 30, // 横6 × 縦5
@@ -65,6 +66,7 @@ const initGame = () => ({
   fx: null, // 運営が全員に送る演出 { id, type, at }
   rules: { battle: true, speed: "normal" }, // battle=false で「対戦なしモード」（空きマスの確保・移動だけ可能）
   notice: null, // 運営からの固定お知らせ
+  draw: null, // 当選者発表 { id, at, winner, assign:{名前:リンク}, lost:[名前], pool } ※assign/lostは本人と運営にしか見せない
   names: [...PLAYERS], // 参加者の並び順（初期参加者 + 運営が作ったテスト参加者）
   cells: Array.from({ length: C.CELLS }, (_, i) => ({ n: i + 1, owner: null, battle: null, at: null })),
   players: Object.fromEntries(PLAYERS.map((n) => [n, { b: 0, w: 0, l: 0, banned: false }])),
@@ -195,6 +197,7 @@ function normGame(g) {
   if (!g.rules.speed) g.rules.speed = "normal";
   if (!Array.isArray(g.voids)) g.voids = [];
   if (g.event.endsAt === undefined) g.event.endsAt = null;
+  if (g.draw === undefined) g.draw = null;
   for (const n of g.names) if (!g.players[n]) g.players[n] = { b: 0, w: 0, l: 0, banned: false };
   // マスが減った場合: はみ出したマスの争奪戦は取り消し、陣地は消える
   while (g.cells.length > C.CELLS) {
@@ -296,6 +299,8 @@ function viewGame(g) {
     notice: g.notice || null,
     voids: (g.voids || []).slice(0, 10),
     fx: g.fx || null,
+    // 当選者の名前だけ公開。誰がどのリンクを引いたか（assign/lost）は絶対にここへ出さない
+    draw: g.draw ? { id: g.draw.id, at: g.draw.at, winner: g.draw.winner } : null,
     cells: g.cells.map((c) => ({ n: c.n, o: c.owner, b: c.battle, at: c.at })),
     players: g.players,
     // 進行中の記録は誰にも見せない（stopped = 止めたかどうかだけ）
@@ -329,6 +334,23 @@ function viewChat(c) {
       rc: m.rep.length,
     })),
   };
+}
+
+// ---------- スーパーレアスタードロップ（引換リンク） ----------
+// 環境変数 VOUCHER_LINKS（改行/カンマ区切り）があればそれを優先。なければ lib/vouchers.mjs を使う。
+const VOUCHER_RE = /^https:\/\/link\.brawlstars\.com\/voucher\/[0-9a-f-]{36}$/i;
+function voucherList() {
+  const env = process.env.VOUCHER_LINKS;
+  const src = env && env.trim() ? env.split(/[\s,]+/) : VOUCHERS;
+  return [...new Set(src.map((u) => String(u).trim()).filter((u) => VOUCHER_RE.test(u)))];
+}
+function shuffle(a) {
+  const r = [...a];
+  for (let i = r.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(i + 1);
+    [r[i], r[j]] = [r[j], r[i]];
+  }
+  return r;
 }
 
 const ACTS = ["select", "battle", "spectate", "idle"];
@@ -509,6 +531,20 @@ async function route(b) {
       });
     }
 
+    // ---------- 当選者発表: 自分の結果（リンクは本人にだけ返す） ----------
+    case "myPrize": {
+      const g = await readJSON("game", "g", initGame);
+      await auth(b.name, b.token, g);
+      notBanned(g, b.name);
+      const d = g.draw;
+      if (!d) return { draw: null };
+      const base = { draw: { id: d.id, at: d.at, winner: d.winner } };
+      if (b.name === d.winner) return { ...base, status: "winner" };
+      if (d.assign && d.assign[b.name]) return { ...base, status: "voucher", url: d.assign[b.name] };
+      if (d.lost && d.lost.includes(b.name)) return { ...base, status: "lost" };
+      return { ...base, status: "none" }; // 発表後に追加された参加者など
+    }
+
     // ---------- 管理者 ----------
     case "adminLogin": {
       const ok = crypto.timingSafeEqual(sha(b.password || ""), sha(ADMIN_PASSWORD));
@@ -522,7 +558,10 @@ async function route(b) {
     case "adminData": {
       needAdmin(b);
       const c = await readJSON("chat", "c", initChat);
+      const g = await readJSON("game", "g", initGame);
       return {
+        draw: g.draw || null, // 運営だけ全員分の割り当てを見られる（配布ミスの確認・再案内用）
+        vouchers: voucherList().length,
         reports: c.msgs
           .filter((m) => m.rep.length && !m.del)
           .map((m) => ({ id: m.id, n: m.n, t: m.t, ts: m.ts, rep: m.rep })),
@@ -647,6 +686,40 @@ async function adminOp(b) {
         const bt = battleOf(g, b.id);
         if (b.winner !== bt.c && b.winner !== bt.d) fail("bad", "勝者が不正です");
         finish(g, bt, b.winner, "admin", t);
+        return {};
+      });
+    // ---------- 当選者発表 ----------
+    case "announce": {
+      const pres = b.onlyJoined ? await readJSON("presence", "p", () => ({})) : null;
+      return mutGame((g, t) => {
+        validName(g, b.winner);
+        if (g.draw) fail("drawn", "すでに発表済みです。やり直す場合は先に「発表を取り消す」を押してください");
+        if (g.players[b.winner].banned) fail("banned", "停止中のアカウントは当選者にできません");
+        // 当選者以外の本番参加者が対象（テスト参加者・停止中は除外。onlyJoined=一度もログインしていない人も除外）
+        const eligible = g.names.filter((n) => n !== b.winner && !g.players[n].test && !g.players[n].banned && (!pres || pres[n]));
+        const links = shuffle(voucherList());
+        if (!links.length) fail("novoucher", "引換リンクが登録されていません");
+        const picks = shuffle(eligible);
+        const given = picks.slice(0, links.length);
+        const lost = picks.slice(links.length);
+        const assign = {};
+        given.forEach((n, i) => {
+          assign[n] = links[i];
+        });
+        g.draw = { id: ++g.seq, at: t, winner: b.winner, assign, lost, pool: links.length };
+        return { given: given.length, lost: lost.length, pool: links.length };
+      });
+    }
+    case "replayDraw": // 全員の画面でもう一度演出を流す（割り当ては変わらない）
+      return mutGame((g, t) => {
+        if (!g.draw) fail("nodraw", "まだ発表していません");
+        g.draw.id = ++g.seq;
+        g.draw.at = t;
+        return {};
+      });
+    case "cancelDraw":
+      return mutGame((g) => {
+        g.draw = null;
         return {};
       });
     // ---------- モード・お知らせ・タイマー ----------

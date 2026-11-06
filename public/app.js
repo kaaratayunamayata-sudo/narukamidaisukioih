@@ -21,6 +21,7 @@ const S = {
   admin: null, adminOpen: false, adminTab: 'overview', reports: [], lastRep: 0,
   search: '', err: 0, prevOwners: null, lastPing: 0, raf: 0,
   goFx: new Set(), fxDone: new Set(), knownVoid: null, prevEv: null, fxId: undefined, lastStamp: 0,
+  drawId: undefined, adminDraw: null, vouchers: 0, drawPick: '', drawOnlyJoined: false,
 };
 try { S.admin = sessionStorage.getItem('bp_admin'); S.storedMe = localStorage.getItem('bp_me'); S.token = localStorage.getItem('bp_token'); } catch {}
 
@@ -105,7 +106,7 @@ async function loop() {
     if (ping) S.lastPing = Date.now();
     if (S.adminOpen && S.admin && Date.now() - S.lastRep > 5000) {
       S.lastRep = Date.now();
-      api('adminData', { adminToken: S.admin }).then((d) => { S.reports = d.reports; renderAdmin(); }).catch(adminErr);
+      api('adminData', { adminToken: S.admin }).then((d) => { S.reports = d.reports; S.adminDraw = d.draw || null; S.vouchers = d.vouchers || 0; renderAdmin(); }).catch(adminErr);
     }
     S.err = 0; $('#offline').hidden = true;
   } catch (e) {
@@ -144,7 +145,7 @@ async function doLogin(name) {
   } catch (e) { closeModal(); toast(e.message, 'err'); }
 }
 function enterApp() {
-  S.inApp = true; S.seenChat = null; S.unread = 0; S.prevOwners = null; S.knownDone = null; S.knownVoid = null; S.prevEv = null; S.fxId = undefined;
+  S.inApp = true; S.seenChat = null; S.unread = 0; S.prevOwners = null; S.knownDone = null; S.knownVoid = null; S.prevEv = null; S.fxId = undefined; S.drawId = undefined;
   FX.wake(!!S.me);
   $('#screen-login').hidden = true; $('#screen-app').hidden = false; $('#chatFab').hidden = false;
   $('#chatInput').disabled = !S.me;
@@ -173,7 +174,7 @@ function render() {
   if (!S.game) return;
   if (!S.inApp) { renderLogin(); if (S.adminOpen) renderAdmin(); return; }
   renderHeader(); renderBanner(); renderBoard(); renderStats(); renderLive(); renderPlayers(); renderChat();
-  trackEvent(); trackFx(); trackDone(); trackVoids(); autoBattle();
+  trackEvent(); trackFx(); trackDraw(); trackDone(); trackVoids(); autoBattle();
   if (S.bv) renderBattle();
   if (S.adminOpen) renderAdmin();
   $('#stampFab').hidden = !(S.inApp && S.me); if ($('#stampFab').hidden) $('#stampTray').hidden = true;
@@ -212,6 +213,7 @@ function renderBanner() {
   const mine = S.me && S.game.battles.find((b) => b.c === S.me || b.d === S.me);
   let html = '', cls = 'banner';
   if (mine) { cls += ' alert'; html = `⚔ マス #${mine.cell} の争奪戦が進行中！<button class="btn small" data-act="openMine" data-id="${mine.id}">対戦画面を開く</button>`; }
+  else if (S.game.draw) { cls += ' warn'; html = `🏆 当選者発表！ 当選者は <b>${esc(S.game.draw.winner)}</b> さん${S.me ? '<button class="btn small" data-act="openPrize">🎁 自分の結果を見る</button>' : ''}`; }
   else if (ev === 'ready') { cls += ' warn'; html = '⏳ イベント開始前です。運営の開始を待ちましょう（観戦・チャットは利用できます）'; }
   else if (ev === 'ended') { cls += ' warn'; html = '🏁 イベントは終了しました。ご参加ありがとうございました！'; }
   else if (ev === 'running' && noBattle()) { cls += ' warn'; html = '🕊 いまは「対戦なしモード」です。空きマスを選んで陣地を決めましょう（確保済みのマスへの挑戦はできません）'; }
@@ -400,6 +402,52 @@ function trackFx() {
   const f = S.game.fx;
   if (S.fxId === undefined) { S.fxId = f ? f.id : 0; return; }
   if (f && f.id !== S.fxId) { S.fxId = f.id; if (sNow() - f.at < 20000) FX.play(f.type); }
+}
+/* ================= 当選者発表 ================= */
+// 運営が「当選者を発表する」を押すと game.draw が入る。全員に特別演出 → ログイン中の人には本人専用の結果（当選／リンク／落選）を表示。
+// 引換リンクは公開データに含まれず、/api の myPrize で本人にだけ返される。
+function trackDraw() {
+  const d = S.game.draw;
+  if (!d) { S.drawId = 0; return; }
+  if (S.drawId === d.id) return;
+  if (S.me && S.game.battles.some((b) => b.c === S.me || b.d === S.me)) return; // 自分の対戦中は終わるまで待つ（STOPの邪魔をしない）
+  S.drawId = d.id;
+  const live = sNow() - d.at < 30000; // 発表の瞬間に見ている人は本編、後から来た人は短縮版
+  let seen = false;
+  try { seen = localStorage.getItem('bp_draw_seen') === d.id + ':' + (S.me || ''); } catch {}
+  if (!live && seen) return;
+  closeModal();
+  FX.drawShow(d.winner, realNames(), { quick: !live, onDone: () => { if (S.me) openPrize(true); else { try { localStorage.setItem('bp_draw_seen', d.id + ':'); } catch {} } } });
+}
+async function openPrize(auto) {
+  if (!S.me || !(S.game && S.game.draw)) return;
+  let r;
+  try { r = await api('myPrize', auth()); } catch (e) { toast(e.message, 'err'); return; }
+  if (!r.draw) return;
+  try { localStorage.setItem('bp_draw_seen', r.draw.id + ':' + S.me); } catch {}
+  const w = esc(r.draw.winner), by = `<small>当選者は <b>${w}</b> さん</small>`;
+  let html = '';
+  if (r.status === 'winner') {
+    html = `<div class="prize-hero">🏆 あなたが当選者です！<small>おめでとうございます！</small></div>
+      <div class="prize-box gold">当選者に選ばれました！運営からの案内をお待ちください。</div>`;
+    if (auto) FX.win(true);
+  } else if (r.status === 'voucher') {
+    const u = esc(r.url);
+    html = `<div class="prize-hero">⭐ スーパーレア<br>スタードロップ当選！${by}</div>
+      <div class="prize-box gold">スーパーレアスタードロップの抽選に当選しました！下のボタンから受け取ってください。<br>⚠ このリンクは<b>あなた専用</b>です。他の人に教えたり、投稿したりしないでください。</div>
+      <a class="btn green big wide" href="${u}" target="_blank" rel="noopener noreferrer">🎁 受け取りページを開く</a>
+      <div class="prize-url">${u}</div>
+      <div class="row"><button class="btn ghost" data-act="copyPrize" data-url="${u}">リンクをコピー</button><button class="btn ghost" data-act="mclose">閉じる</button></div>`;
+    if (auto) { FX.play('stars'); FX.confetti(window.innerWidth / 2, window.innerHeight * 0.6, 90, Math.PI * 1.3, 12); FX.vibe([60, 40, 60, 40, 120]); }
+  } else if (r.status === 'lost') {
+    html = `<div class="prize-hero">😢 抽選に落選しました${by}</div>
+      <div class="prize-box sad">スーパーレアスタードロップ抽選に落選しました。今回は引換リンクが参加人数分なく、ランダム抽選で選ばれた方にだけ配布されました。ご参加ありがとうございました！</div>`;
+    if (auto) FX.lose();
+  } else {
+    html = `<div class="prize-hero">🏆 当選者発表${by}</div><div class="prize-box">あなたは今回の抽選の対象外です。ご参加ありがとうございました！</div>`;
+  }
+  if (r.status !== 'voucher') html += `<div class="row"><button class="btn" data-act="mclose">閉じる</button></div>`;
+  openModal(html);
 }
 function trackVoids() {
   const vs = S.game.voids || [];
@@ -672,9 +720,12 @@ function adminErr(e) {
 function openAdmin() { S.adminOpen = true; $('#admin').hidden = false; document.body.style.overflow = 'hidden'; S.lastRep = 0; $('#adminBody')._h = null; renderAdmin(); }
 function closeAdmin() { S.adminOpen = false; $('#admin').hidden = true; if (!S.bv) document.body.style.overflow = ''; }
 const ad = (op, args = {}, confirmMsg = '') => `data-aop="${op}" data-aargs="${esc(JSON.stringify(args))}" ${confirmMsg ? `data-confirm="${esc(confirmMsg)}"` : ''}`;
-async function adminCall(op, args) {
-  try { await api('admin', { adminToken: S.admin, op, ...args }); await doSync(false); toast('実行しました', 'ok'); S.lastRep = 0; }
-  catch (e) { adminErr(e); if (e.code !== 'admin') toast(e.message, 'err'); }
+async function adminCall(op, args, quiet) {
+  try { const d = await api('admin', { adminToken: S.admin, op, ...args }); await doSync(false); if (!quiet) toast('実行しました', 'ok'); S.lastRep = 0; return d; }
+  catch (e) { adminErr(e); if (e.code !== 'admin') toast(e.message, 'err'); return null; }
+}
+function drawEligible(winner) {
+  return S.names.filter((n) => n !== winner && !isTest(n) && !S.game.players[n].banned && (!S.drawOnlyJoined || S.presence[n]));
 }
 function resultText() {
   const g = S.game, N = g.cells.length;
@@ -685,10 +736,10 @@ function resultText() {
     ...rows.map((r, i) => `${i + 1}. ${r.n}  ${r.p.w}勝${r.p.l}敗  陣地: ${r.cells.join(' ') || 'なし'}`), '', '■ マス一覧',
     ...g.cells.map((c) => `#${c.n} ${c.o || '（空き）'}`)].join('\n');
 }
-async function copyText(t) {
+async function copyText(t, msg = '結果をコピーしました') {
   try { await navigator.clipboard.writeText(t); }
   catch { const a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); document.execCommand('copy'); a.remove(); }
-  toast('結果をコピーしました', 'ok');
+  toast(msg, 'ok');
 }
 async function adminEnterAs(name) {
   closeAdmin();
@@ -704,12 +755,34 @@ function renderAdmin() {
       <div class="row" style="display:flex;margin-top:12px"><button class="btn blue wide" data-act="adminLogin">ログイン</button></div>`);
     return;
   }
-  if (document.activeElement && document.activeElement.matches && document.activeElement.matches('#adminBody input')) return;
+  if (document.activeElement && document.activeElement.matches && document.activeElement.matches('#adminBody input, #adminBody select')) return;
   const g = S.game, tabs = [['overview', '概要'], ['players', '参加者'], ['battles', '争奪戦・結果'], ['chat', 'チャット']];
   let c = '';
   if (S.adminTab === 'overview') {
     const owned = g.cells.filter((x) => x.o).length;
-    c = `<div class="card" style="padding:12px"><div class="stat-line"><span>状態</span><b>${g.event.status === 'running' ? '開催中' : g.event.status === 'ended' ? '終了' : '開始前'}</b></div>
+    const dr = g.draw, da = S.adminDraw && dr && S.adminDraw.id === dr.id ? S.adminDraw : null;
+    const pick = S.drawPick && S.names.includes(S.drawPick) ? S.drawPick : '';
+    let drawHtml;
+    if (!dr) {
+      const el = pick ? drawEligible(pick).length : 0, nv = S.vouchers;
+      drawHtml = `<select id="adminDrawPick" class="input">${'<option value="">— アカウントを選んで当選者にする —</option>' + S.names.map((n) => `<option value="${esc(n)}" ${n === pick ? 'selected' : ''}>${esc(n)}${isTest(n) ? '（テスト）' : ''}${g.players[n].banned ? '（停止中）' : ''}</option>`).join('')}</select>
+        <label style="display:flex;gap:8px;align-items:center;margin:8px 0;font-size:.85rem"><input type="checkbox" id="adminDrawJoined" ${S.drawOnlyJoined ? 'checked' : ''}> 一度もログインしていないアカウントは抽選から除く</label>
+        <div class="btn-row"><button class="btn" data-act="adminAnnounce" ${pick ? '' : 'disabled'}>🏆 当選者を発表する！</button>
+        <button class="btn small ghost" data-act="adminDrawPreview" ${pick ? '' : 'disabled'}>👀 演出プレビュー（自分の画面だけ）</button></div>
+        <small style="opacity:.8">登録リンク <b>${nv}個</b>。${pick ? `当選者以外の対象 <b>${el}人</b> → リンク配布 <b>${Math.min(el, nv)}人</b>・落選 <b>${Math.max(0, el - nv)}人</b>（ランダム）。` : '当選者を選ぶと配布人数の目安が出ます。'}テスト参加者・停止中は抽選対象外です。</small>`;
+    } else {
+      const ents = da ? Object.entries(da.assign || {}) : [];
+      drawHtml = `<div class="stat-line"><span>当選者</span><b>🏆 ${esc(dr.winner)}</b></div>
+        <div class="stat-line"><span>発表時刻</span><b>${hhmm(dr.at)}</b></div>
+        <div class="stat-line"><span>リンク配布 / 落選</span><b>${da ? ents.length + '人 / ' + (da.lost || []).length + '人' : '…'}</b></div>
+        <div class="btn-row"><button class="btn small blue" ${ad('replayDraw', {})}>🔁 全員の画面でもう一度演出</button>
+        <button class="btn small ghost" data-act="adminCopyDraw" ${da ? '' : 'disabled'}>📋 配布結果をコピー</button>
+        <button class="btn small red" ${ad('cancelDraw', {}, '発表を取り消します。割り当てた引換リンクも白紙に戻り、再発表すると配布先が変わります。すでに誰かがリンクを見ている場合は混乱の元です。本当に取り消しますか？')}>発表を取り消す</button></div>
+        ${da ? `<div class="sec-title">⭐ リンク配布（${ents.length}人）</div>${ents.map(([n, u]) => `<div class="a-row"><div class="grow"><b>${esc(n)}</b> <small>…${esc(u.slice(-8))}</small></div></div>`).join('') || '<div class="empty-note">なし</div>'}
+        <div class="sec-title">😢 落選（${(da.lost || []).length}人）</div><div class="a-row"><div class="grow">${(da.lost || []).map(esc).join('、') || 'なし'}</div></div>` : ''}`;
+    }
+    c = `<div class="card" style="padding:12px;margin-bottom:12px"><div class="sec-title" style="margin-top:0">🏆 当選者発表</div>${drawHtml}</div>
+      <div class="card" style="padding:12px"><div class="stat-line"><span>状態</span><b>${g.event.status === 'running' ? '開催中' : g.event.status === 'ended' ? '終了' : '開始前'}</b></div>
       <div class="stat-line"><span>確保済み / 争奪中</span><b>${owned} / ${g.cells.filter((x) => x.b).length}（全${g.cells.length}マス）</b></div>
       <div class="stat-line"><span>オンライン</span><b>${realNames().filter(isOn).length}/${realNames().length}人（テスト${S.names.filter(isTest).length}人別）</b></div>
       <div class="stat-line"><span>停止中のアカウント</span><b>${S.names.filter((n) => g.players[n].banned).length}人</b></div>
@@ -783,7 +856,7 @@ function bind() {
   $('#bottomNav').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (!b) return; S.tab = b.dataset.tab; if (S.tab !== 'board') S.side = S.tab; renderHeader(); scrollTo({ top: 0 }); });
   $('#sideTabs').addEventListener('click', (e) => { const b = e.target.closest('[data-pane]'); if (b) { S.side = b.dataset.pane; renderHeader(); } });
   $('#paneLive').addEventListener('click', (e) => { const b = e.target.closest('[data-act="watch"]'); if (b) openBattle(+b.dataset.id); });
-  $('#banner').addEventListener('click', (e) => { const b = e.target.closest('[data-act="openMine"]'); if (b) openBattle(+b.dataset.id); });
+  $('#banner').addEventListener('click', (e) => { const b = e.target.closest('[data-act]'); if (!b) return; if (b.dataset.act === 'openMine') openBattle(+b.dataset.id); else if (b.dataset.act === 'openPrize') openPrize(false); });
   $('#chatFab').addEventListener('click', openChat);
   $('#btnSettings').addEventListener('click', openSettings);
   $('#btnLocate').addEventListener('click', locateMine);
@@ -812,6 +885,7 @@ function bind() {
     else if (a === 'claimOK') claim(+b.dataset.n);
     else if (a === 'watch') openBattle(+b.dataset.id);
     else if (a === 'toLogin') { closeModal(); leaveApp(); }
+    else if (a === 'copyPrize') copyText(b.dataset.url, 'リンクをコピーしました');
   });
   $('#battleBody').addEventListener('pointerdown', (e) => { if (e.target.closest('#bt-stop')) { e.preventDefault(); doStop(); } });
   $('#battleBody').addEventListener('click', (e) => {
@@ -830,6 +904,16 @@ function bind() {
     if (a.dataset.act === 'aclose') closeAdmin();
     else if (a.dataset.act === 'adminEnterAs') adminEnterAs(a.dataset.name);
     else if (a.dataset.act === 'adminCopy') copyText(resultText());
+    else if (a.dataset.act === 'adminDrawPreview') { if (S.drawPick) FX.drawShow(S.drawPick, realNames(), {}); }
+    else if (a.dataset.act === 'adminCopyDraw') { const da = S.adminDraw; if (da) copyText(['当選者\t' + da.winner, ...Object.entries(da.assign || {}).map(([n, u]) => n + '\t' + u), ...(da.lost || []).map((n) => n + '\t落選')].join('\n'), '配布結果をコピーしました'); }
+    else if (a.dataset.act === 'adminAnnounce') {
+      const w = S.drawPick; if (!w) return;
+      if (!confirm(`「${w}」を当選者として発表します。\n\n・全員の画面に特別演出が出ます\n・他の参加者（対象${drawEligible(w).length}人）には、スーパーレアスタードロップの当選／落選がランダムで割り当てられます\n\nよろしいですか？`)) return;
+      a.disabled = true;
+      const d = await adminCall('announce', { winner: w, onlyJoined: S.drawOnlyJoined }, true);
+      if (d) toast(`発表しました（リンク配布${d.given}人／落選${d.lost}人）`, 'ok');
+      a.disabled = false;
+    }
     else if (a.dataset.act === 'adminTimerCustom') { const v = prompt('何分後に自動終了しますか？（1〜1440）'); const m = Number(v); if (v !== null && m > 0) adminCall('setTimer', { minutes: m }); }
     else if (a.dataset.act === 'adminSetOwner') { const N = S.game.cells.length, v = prompt(`${a.dataset.name} を置くマス番号（1〜${N}）\n※元の陣地は空きになります`); const n = Number(v); if (v !== null && Number.isInteger(n) && n >= 1 && n <= N) adminCall('setOwner', { name: a.dataset.name, cell: n }); }
     else if (a.dataset.act === 'adminLogout') { S.admin = null; try { sessionStorage.removeItem('bp_admin'); } catch {} renderAdmin(); }
@@ -839,6 +923,12 @@ function bind() {
       catch (er) { toast(er.message, 'err'); }
       a.disabled = false;
     }
+  });
+  $('#adminBody').addEventListener('change', (e) => {
+    if (e.target.id === 'adminDrawPick') S.drawPick = e.target.value;
+    else if (e.target.id === 'adminDrawJoined') S.drawOnlyJoined = e.target.checked;
+    else return;
+    e.target.blur(); renderAdmin();
   });
   $('#adminBody').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'adminPw') $('[data-act="adminLogin"]').click(); });
   $('#adminBody').addEventListener('submit', (e) => {
