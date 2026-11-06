@@ -1,6 +1,114 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>BRO PASS MARBLE RACE</title><link rel="stylesheet" href="style.css"></head><body>
-<header><h1>BRO PASS <b>MARBLE RACE</b></h1><div id="stat"></div></header><div id="mode" hidden>★ 演出モード ★ このレースは結果が決まっている演出です</div>
-<main><section id="stage"><canvas id="cv"></canvas><div id="hud"><div id="timer"></div><div id="cast"></div></div><div id="lobby"></div><div id="res" hidden></div></section>
-<aside><div id="rank"></div><div id="chat"><div id="msgs"></div><form id="cf"><input id="ci" maxlength="200" placeholder="メッセージ"><button>送信</button></form></div></aside></main>
-<section id="admin" hidden></section>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script><script src="script.js"></script></body></html>
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#080d1b">
+  <title>BRO PASS MARBLE RACE</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800;900&family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
+  <header class="topbar">
+    <a class="brand" href="#"><span class="brand-mark">B</span><span>BRO PASS <b>MARBLE RACE</b></span></a>
+    <div class="top-status"><span class="live-dot"></span><span id="connectionLabel">接続準備中</span><span class="top-divider"></span><span>ONLINE <b id="onlineCount">1</b></span></div>
+    <button class="admin-open" id="adminOpen">管理者</button>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="eyebrow"><span>OFFICIAL GIVEAWAY EVENT</span><i></i><span>SEASON EVENT</span></div>
+      <h1>BRO PASS <em>MARBLE RACE</em></h1>
+      <p class="hero-sub">30 PLAYERS. ONE CHAMPION. THE RACE STARTS HERE.</p>
+      <div class="hero-stats">
+        <div><small>参加者</small><strong id="participantCount">30</strong><small>PLAYERS</small></div>
+        <div><small>レース時間</small><strong>03:00</strong><small>RACE TIME</small></div>
+        <div><small>ステータス</small><strong class="status-text" id="eventStatus">WAITING</strong><small>EVENT STATUS</small></div>
+      </div>
+    </section>
+
+    <section class="main-grid">
+      <div class="left-column">
+        <section class="panel entry-panel">
+          <div class="section-head"><div><span class="kicker">01 / ENTRY</span><h2>参加登録</h2></div><span class="pill pill-green" id="entryState">受付中</span></div>
+          <p class="muted">自分のアカウントを選択して待機してください。管理者がレースを開始するまでレースは始まりません。</p>
+          <div class="entry-controls">
+            <label class="select-wrap"><span>参加アカウント</span><select id="playerSelect"><option value="">アカウントを選択</option></select></label>
+            <button class="primary-btn" id="joinBtn">このアカウントで待機する <span>→</span></button>
+          </div>
+          <div class="my-entry" id="myEntry"><span class="empty-avatar">?</span><span><b>未参加</b><small>アカウントを選択してください</small></span></div>
+          <div class="section-head roster-head"><div><span class="kicker">02 / ROSTER</span><h2>参加者一覧 <small id="rosterCount">30名</small></h2></div><span class="muted tiny">名前は登録表記のまま表示</span></div>
+          <div class="roster" id="roster"></div>
+        </section>
+
+        <section class="panel chat-panel">
+          <div class="section-head"><div><span class="kicker">03 / LIVE COMMUNITY</span><h2>ライブチャット</h2></div><span class="pill pill-blue">REALTIME</span></div>
+          <div class="chat-messages" id="chatMessages"><div class="chat-empty">チャットに参加すると、ここにメッセージが表示されます。</div></div>
+          <form id="chatForm" class="chat-form"><input id="chatInput" maxlength="240" placeholder="メッセージを入力..." autocomplete="off"><button type="submit" aria-label="送信">↑</button></form>
+          <div class="chat-foot">参加登録後にチャットを利用できます。個人情報は投稿しないでください。</div>
+        </section>
+      </div>
+
+      <div class="right-column">
+        <section class="race-panel panel">
+          <div class="race-top"><div><span class="kicker">LIVE ARENA / 3D SIMULATION</span><h2>MARBLE <em>ARENA</em></h2></div><span class="race-badge" id="raceBadge">WAITING ROOM</span></div>
+          <div class="canvas-wrap" id="canvasWrap">
+            <canvas id="raceCanvas"></canvas>
+            <div class="canvas-overlay" id="canvasOverlay">
+              <div class="orbit-icon"><span>◆</span></div>
+              <strong>THE RACE IS ABOUT TO BEGIN</strong>
+              <p>管理者がスタートするまでお待ちください</p>
+              <div class="waiting-line"><i></i><span>WAITING FOR ADMIN</span><i></i></div>
+            </div>
+            <div class="race-countdown" id="countdown"></div>
+            <div class="race-timer"><small>TIME REMAINING</small><strong id="timer">03:00</strong></div>
+          </div>
+          <div class="race-lower">
+            <div class="race-progress"><div class="progress-label"><span>RACE PROGRESS</span><b id="progressText">0%</b></div><div class="progress-track"><i id="progressBar"></i></div></div>
+            <div class="leaderboard"><div class="leader-head"><h3>順位速報</h3><span>LIVE RANKING</span></div><div id="leaderRows" class="leader-rows"><div class="leader-empty">レース開始後に順位が表示されます。</div></div></div>
+          </div>
+        </section>
+
+        <section class="result-panel panel" id="resultPanel">
+          <div class="section-head"><div><span class="kicker">04 / FINAL RESULT</span><h2>WINNER <em>ANNOUNCEMENT</em></h2></div><span class="pill">OFFICIAL RESULT</span></div>
+          <div class="result-placeholder" id="resultPlaceholder"><span class="trophy">♛</span><b>THE CHAMPION WILL BE HERE</b><small>レース終了後、優勝者が発表されます。</small></div>
+          <div class="winner-card hidden" id="winnerCard"><span class="winner-crown">♛</span><small>GRAND CHAMPION</small><strong id="winnerName">---</strong><span>BRO PASS WINNER</span></div>
+        </section>
+      </div>
+    </section>
+    <footer><span>BRO PASS MARBLE RACE</span><span>COMMUNITY EVENT · HAVE FUN & GOOD LUCK</span></footer>
+  </main>
+
+  <div class="modal-backdrop hidden" id="adminModal">
+    <section class="admin-modal">
+      <button class="modal-close" id="adminClose">×</button>
+      <div class="kicker">CONTROL ROOM / ADMIN ACCESS</div><h2>管理者パネル</h2>
+      <div id="adminLogin">
+        <p class="muted">管理者パスワードを入力してください。</p>
+        <input id="adminPassword" type="password" placeholder="管理者パスワード" autocomplete="current-password">
+        <button class="primary-btn full" id="adminLoginBtn">ログイン</button><p class="error" id="adminError"></p>
+      </div>
+      <div id="adminControls" class="hidden">
+        <div class="admin-status"><span>管理者としてログイン中</span><button class="text-btn" id="adminLogout">ログアウト</button></div>
+        <div class="admin-actions">
+          <button class="primary-btn" id="startRace">▶ レース開始</button>
+          <button class="secondary-btn" id="pauseRace">Ⅱ 一時停止 / 再開</button>
+          <button class="secondary-btn" id="resetRace">↻ リセット</button>
+        </div>
+        <label class="admin-label">抽選モード<select id="raceMode"><option value="fair">公平モード（ランダム）</option><option value="show">演出モード（指定優勝者）</option></select></label>
+        <label class="admin-label">演出モードの優勝者<input id="fixedWinner" value="uniuni20131004"></label>
+        <div class="admin-add"><h3>テストプレイヤー追加</h3><div class="inline-fields"><input id="testName" placeholder="プレイヤー名"><button class="secondary-btn" id="addTest">追加</button></div></div>
+        <div class="admin-add"><h3>プレイヤー管理・BAN</h3><div id="adminPlayerList" class="admin-player-list"></div></div>
+        <p class="admin-note">公平モードでは全参加者が同じ条件で競います。演出モードは指定優勝者が勝つデモ用で、結果画面にも演出モードと表示されます。</p>
+      </div>
+    </section>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script src="./runtime-config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script type="module" src="./script.js"></script>
+</body>
+</html>
