@@ -1,18 +1,29 @@
-# BRO PASS MARBLE RACE
-## 構成
-`index.html / style.css / script.js`（画面）、`netlify/functions/api.js`（管理者認証・重要処理）、`supabase/schema.sql`（DB）
-## 手順
-1. **Supabase**：New project → SQL Editor に `supabase/schema.sql` を貼って Run。Settings > API で `Project URL` / `anon key` / `service_role key` を控える。
-2. **GitHub**：このフォルダ一式をリポジトリにアップロード（`.env`は入れない）。
-3. **Netlify**：Add new site > Import from GitHub。Build command は空、Publish directory は `.`。
-4. **環境変数**（Site settings > Environment variables）：
-   - `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_KEY`（service_roleは絶対に公開しない）
-   - `ADMIN_PASSWORD`（管理者パスワード。コードには書かない）
-   - `TOKEN_SECRET`（長いランダム文字列）
-   設定後に Deploy を再実行。
-5. 管理者は `https://あなたのサイト/#admin` を開いてログイン。
-## 使い方
-参加者は名前を選んで待機 → 管理者が「開始」。演出モードは画面上部に常時「演出モード」と表示されます（全員に見えます）。
-## 仕組みと制限
-- 開始時にサーバーがシード・順位・ゴール時刻を決定し、全端末が同じ開始時刻から同じ映像を再生します（端末間で展開がずれません）。通常モードは暗号論的乱数による公平な抽選です。
-- ビー玉の動きは物理エンジンではなく、シード固定のコース上アニメーションです（全端末で同一の展開にするため）。ジャンプ台・分岐・回転障害物は未実装です。
+# BRO PASS MARBLE GRAND PRIX
+
+## セットアップ
+1. Supabaseでプロジェクト作成 → SQL Editorで下記を実行
+2. `config.js` に Project URL と anon key を記入
+3. GitHubにアップロード → Netlifyで公開（ビルド設定なし）
+
+```sql
+create table players(id serial primary key,name text unique not null,online bool default false,last_seen timestamptz default now(),banned bool default false,is_test bool default false);
+create table race(id int primary key,status text default 'waiting',seed bigint,start_at bigint,paused_at bigint,paused_total float default 0,mode text default 'designated',designated text default 'uniuni20131004',winner text,notice text);
+create table chat(id serial primary key,name text,msg text,created_at timestamptz default now());
+insert into race(id) values(1);
+insert into players(name) values ('hamabenokai'),('ClumsyShuhei'),('EnjoyedBshsh'),('godhand1234'),('mandicendiiiii'),('rickey3326'),('abc315315'),('asaking 1218'),('bottikunnn'),('Marisakami'),('skYAJU114514'),('Chaser44'),('kaninekoheiryo'),('WearyTwiIight78'),('FullNiceSandwich'),('192837465h'),('dicesoe'),('studiousEpiccopper'),('AdroitSturdyCelery'),('Niwatori0503'),('JocularHappyClover'),('kurumi0203'),('osaruboy0228'),('blits3939'),('StellarNeatlyTom'),('Kingsrennosuke0205'),('uniuni20131004'),('02112015'),('#2CQOVLGLOJ'),('ComplexGlasses71');
+alter table players enable row level security;alter table race enable row level security;alter table chat enable row level security;
+create policy a on players for all using(true) with check(true);
+create policy a on race for all using(true) with check(true);
+create policy a on chat for all using(true) with check(true);
+alter publication supabase_realtime add table players,race,chat;
+```
+
+## 仕組み
+- レースはサーバー(race表)の `seed` と `start_at` から決定論的に計算され、全員同じ展開になります。
+- 管理者ボタン→race表更新→Realtimeで全員に反映。
+- 指定当選者モードでは `designated` のプレイヤーが1位になり、画面上部にルールが常時表示されます。
+
+## 既知の制限（今回の簡易版）
+- 管理者権限チェックはクライアント側のみ（RLSが全許可）。本格運用ではSupabase Edge Functionで検証してください。
+- 物理演算(Matter.js)・衝突演出・分岐・花火/紙吹雪・BGM/効果音は未実装。ビー玉は螺旋コース上を決定論的に移動します。
+- 端末時計のズレで開始が最大数秒ずれる場合があります。

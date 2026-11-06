@@ -1,6 +1,132 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>BRO PASS MARBLE RACE</title><link rel="stylesheet" href="style.css"></head><body>
-<header><h1>BRO PASS <b>MARBLE RACE</b></h1><div id="stat"></div></header><div id="mode" hidden>★ 演出モード ★ このレースは結果が決まっている演出です</div>
-<main><section id="stage"><canvas id="cv"></canvas><div id="hud"><div id="timer"></div><div id="cast"></div></div><div id="lobby"></div><div id="res" hidden></div></section>
-<aside><div id="rank"></div><div id="chat"><div id="msgs"></div><form id="cf"><input id="ci" maxlength="200" placeholder="メッセージ"><button>送信</button></form></div></aside></main>
-<section id="admin" hidden></section>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script><script src="script.js"></script></body></html>
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BRO PASS MARBLE GRAND PRIX</title>
+<style>
+:root{--bg:#050b1f;--gold:#f5c542;--blue:#3b82f6;--glass:rgba(255,255,255,.07)}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(#10224d,#050b1f);color:#fff;font-family:system-ui,sans-serif;font-size:16px}
+h1{color:var(--gold);letter-spacing:2px;text-align:center;margin:12px;font-size:clamp(20px,5vw,34px)}
+.panel{background:var(--glass);border:1px solid #ffffff22;border-radius:14px;padding:12px;backdrop-filter:blur(8px);margin:10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
+.card{padding:10px;border-radius:10px;background:#0b1636;border:1px solid #ffffff22;cursor:pointer}
+.dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px}
+.ONLINE{color:#4ade80}.OFFLINE{color:#888}.RACING{color:#60a5fa}.FINISHED{color:var(--gold)}.BANNED{color:#f87171}
+button{background:linear-gradient(#f5c542,#c89a1c);border:0;border-radius:8px;padding:10px 14px;font-weight:700;margin:3px;box-shadow:0 3px #7a5b0a}
+input{padding:10px;border-radius:8px;border:0;font-size:16px}
+#c{width:100%;height:55vh;display:block;border-radius:14px}
+#timer{font-size:clamp(32px,8vw,60px);color:var(--gold);text-align:center;font-weight:800}
+#cast{text-align:center;min-height:1.5em}
+#log{height:150px;overflow:auto;font-size:15px}
+#over{position:fixed;inset:0;background:#000d;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;z-index:9;overflow:auto}
+.big{font-size:clamp(28px,8vw,64px);color:var(--gold);font-weight:900}
+.hide{display:none}
+</style></head><body>
+<h1>BRO PASS MARBLE GRAND PRIX</h1>
+<div id="sel" class="panel"><h2>YOUR MARBLE IS WAITING</h2><p>自分のアカウントを選択してレースに参加しよう！</p>
+<div id="cards" class="grid"></div>
+<p><button onclick="adminLogin()">管理者</button></p></div>
+<div id="main" class="hide">
+<div class="panel"><div id="timer">WAITING</div><div id="cast"></div><div id="notice"></div>
+<div id="rule" style="color:#9cc;font-size:14px;text-align:center"></div></div>
+<canvas id="c"></canvas>
+<div class="panel"><b>順位</b> <span id="rank"></span></div>
+<div class="panel"><b>プレイヤー</b> <span id="cnt"></span><div id="plist" class="grid"></div></div>
+<div class="panel"><b>CHAT</b><div id="log"></div><input id="msg" maxlength="100" style="width:70%"><button onclick="send()">送信</button></div>
+<div id="admin" class="panel hide"><b>ADMIN</b><br>
+<button onclick="adStart()">開始</button><button onclick="adSet('paused')">一時停止</button><button onclick="adSet('resume')">再開</button><button onclick="adSet('cancel')">中止</button><button onclick="adSet('reset')">リセット</button><br>
+方式 <select id="mode"><option value="designated">指定当選者</option><option value="random">完全ランダム</option></select>
+指定 <input id="des" size="14"><button onclick="adMode()">保存</button><br>
+<input id="tn" placeholder="テスト名" size="12"><button onclick="adAdd()">テスト追加</button>
+<input id="nt" placeholder="お知らせ" size="16"><button onclick="adNotice()">投稿</button>
+<div id="adl"></div></div>
+</div>
+<div id="over"><div class="big">WE HAVE A WINNER!!</div><div class="big" id="wn" style="color:#fff"></div><div class="big">CONGRATULATIONS！</div><div id="tbl" style="max-width:420px;text-align:left"></div><button onclick="document.getElementById('over').style.display='none'">閉じる</button></div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script>
+const $=id=>document.getElementById(id),C=CFG,sb=supabase.createClient(C.SUPABASE_URL,C.SUPABASE_KEY);
+let me=null,isAdmin=false,players=[],race={},chat=[],last=0,sched=[],done=false;
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const on=p=>p.online&&Date.now()-new Date(p.last_seen)<25000;
+const st=p=>p.banned?'BANNED':race.status=='finished'&&1?'FINISHED':race.status=='running'&&on(p)?'RACING':on(p)?'ONLINE':'OFFLINE';
+const hue=i=>`hsl(${i*360/Math.max(players.length,30)},85%,55%)`;
+function mulberry(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+async function load(){
+ const[a,b,c]=await Promise.all([sb.from('players').select('*').order('id'),sb.from('race').select('*').eq('id',1).single(),sb.from('chat').select('*').order('created_at',{ascending:false}).limit(50)]);
+ players=a.data||[];race=b.data||{};chat=(c.data||[]).reverse();draw();
+}
+function draw(){
+ const pl=players.filter(p=>!p.banned);
+ $('cards').innerHTML=players.map(p=>`<div class="card" onclick="pick('${esc(p.name).replace(/'/g,"\\'")}')"><span class="dot" style="background:${hue(p.id-1)}"></span>${esc(p.name)}<br><small class="${st(p)}">${st(p)}</small></div>`).join('');
+ $('plist').innerHTML=players.map(p=>`<div class="card"><span class="dot" style="background:${hue(p.id-1)}"></span>${esc(p.name)} <small class="${st(p)}">${st(p)}</small>${isAdmin?` <button onclick="ban(${p.id},${!p.banned})">${p.banned?'解除':'BAN'}</button><button onclick="del(${p.id})">削除</button>`:''}</div>`).join('');
+ $('cnt').textContent=`参加${pl.length}名 / オンライン${players.filter(on).length}名`;
+ $('notice').innerHTML=race.notice?'📢 '+esc(race.notice):'';
+ $('rule').textContent=race.mode=='designated'?`【ルール】今大会は管理者指定の当選者（${race.designated}）が正式な当選者になります。演出上の順位とは別に管理されます。`:'【ルール】完全ランダム抽選';
+ $('log').innerHTML=chat.map(m=>`<div>${new Date(m.created_at).toLocaleTimeString().slice(0,5)} <b>${esc(m.name)}</b>：${esc(m.msg)}${isAdmin?` <a href="#" onclick="dc(${m.id});return false">🗑</a>`:''}</div>`).join('');
+ $('log').scrollTop=1e9;
+ if(race.mode)$('mode').value=race.mode;
+ buildSched();
+}
+function buildSched(){ // deterministic from server seed: identical on all screens
+ const pl=players.filter(p=>!p.banned);if(!race.seed||!pl.length){sched=[];return}
+ const r=mulberry(race.seed);
+ sched=pl.map(p=>({p,T:C.RACE_SEC-18+r()*18,k:4+Math.floor(r()*4),amp:.03+r()*.03,ph:r()*6,lane:r()}));
+ let w=null;
+ if(race.mode=='designated')w=sched.find(s=>s.p.name==race.designated);
+ else w=sched.slice().sort((a,b)=>a.T-b.T)[0];
+ if(w){const m=Math.min(...sched.map(s=>s.T));w.T=Math.min(m,w.T)-.7;w.win=true}
+}
+const prog=(s,t)=>{const u=Math.min(1,Math.max(0,t/s.T));return u>=1?1:Math.min(1,u+s.amp*Math.sin(Math.PI*s.k*u)/ (s.k*Math.PI)*s.k*0.6)};
+function el(){ if(race.status=='running')return(Date.now()-race.start_at)/1000-(race.paused_total||0);
+ if(race.status=='paused')return(race.paused_at-race.start_at)/1000-(race.paused_total||0);
+ return race.status=='finished'?C.RACE_SEC:-1}
+async function pick(n){
+ const p=players.find(x=>x.name==n);if(p.banned)return alert('BANされています');
+ if(on(p)&&(!me||me!=n))return alert('他の人が使用中です');
+ me=n;$('sel').classList.add('hide');$('main').classList.remove('hide');beat();setInterval(beat,10000);
+}
+async function beat(){if(me)await sb.from('players').update({online:true,last_seen:new Date().toISOString()}).eq('name',me)}
+addEventListener('beforeunload',()=>{if(me)sb.from('players').update({online:false}).eq('name',me)});
+async function send(){const v=$('msg').value.trim();if(!v||Date.now()-last<2000)return;last=Date.now();$('msg').value='';await sb.from('chat').insert({name:me||'ADMIN',msg:v})}
+// admin
+function adminLogin(){if(prompt('管理者パスワード')==C.ADMIN_PASS){isAdmin=true;me=me||'ADMIN';$('sel').classList.add('hide');$('main').classList.remove('hide');$('admin').classList.remove('hide');draw()}else alert('違います')}
+const upd=o=>sb.from('race').update(o).eq('id',1);
+async function adStart(){await upd({status:'running',seed:Math.floor(Math.random()*1e9),start_at:Date.now()+8000,paused_at:null,paused_total:0,winner:null})}
+async function adSet(a){const now=Date.now();
+ if(a=='paused'&&race.status=='running')await upd({status:'paused',paused_at:now});
+ if(a=='resume'&&race.status=='paused')await upd({status:'running',paused_total:(race.paused_total||0)+(now-race.paused_at)/1000,paused_at:null});
+ if(a=='cancel'||a=='reset')await upd({status:'waiting',seed:null,winner:null});}
+async function adMode(){await upd({mode:$('mode').value,designated:$('des').value.trim()||race.designated})}
+async function adAdd(){const n=$('tn').value.trim();if(n)await sb.from('players').insert({name:n,is_test:true});$('tn').value=''}
+async function adNotice(){await upd({notice:$('nt').value})}
+const ban=(id,b)=>sb.from('players').update({banned:b}).eq('id',id),del=id=>sb.from('players').delete().eq('id',id),dc=id=>sb.from('chat').delete().eq('id',id);
+// 3D
+const cv=$('c'),R=new THREE.WebGLRenderer({canvas:cv,antialias:true}),S=new THREE.Scene(),cam=new THREE.PerspectiveCamera(60,1,.1,500);
+S.background=new THREE.Color(0x050b1f);S.add(new THREE.AmbientLight(0xffffff,.7));const dl=new THREE.DirectionalLight(0xffffff,1);dl.position.set(40,80,40);S.add(dl);
+const pos=(p,l)=>{const a=p*6*Math.PI,r=30+l*4;return new THREE.Vector3(Math.cos(a)*r,60*(1-p)+ (l*1.2),Math.sin(a)*r)};
+const pts=[];for(let i=0;i<=240;i++)pts.push(pos(i/240,1.5));
+S.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts),400,6.5,10,false),new THREE.MeshStandardMaterial({color:0x1d3a7a,transparent:true,opacity:.35,side:THREE.DoubleSide})));
+const goal=new THREE.Mesh(new THREE.TorusGeometry(7,.5,8,24),new THREE.MeshBasicMaterial({color:0xf5c542}));goal.position.copy(pos(1,1.5));S.add(goal);
+let meshes={};
+function size(){const w=cv.clientWidth,h=cv.clientHeight;R.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix()}addEventListener('resize',size);size();
+const cast=['現在トップを走るのは{L}！','おっと！ここで大きく順位が入れ替わった！','第2集団が接近しています！','これは最後まで分かりません！','{L}が抜け出すか！？','後方から追い上げてくる！'];let lastC=0;
+function fin(){if(done)return;done=true;const o=sched.slice().sort((a,b)=>a.T-b.T),w=o[0].p.name;
+ $('wn').textContent=w;$('tbl').innerHTML=o.map((s,i)=>`<div>${i+1}. ${esc(s.p.name)}</div>`).join('')+`<p style="font-size:13px">${race.mode=='designated'?'管理者指定ルール適用':'完全ランダム'}</p>`;$('over').style.display='flex'}
+function loop(){requestAnimationFrame(loop);const t=el();
+ if(race.status=='running'&&Date.now()<race.start_at){$('timer').textContent=Math.ceil((race.start_at-Date.now())/1000);done=false}
+ else if(t>=0&&sched.length){const rem=Math.max(0,C.RACE_SEC-t);$('timer').textContent=Math.floor(rem/60)+':'+String(Math.floor(rem%60)).padStart(2,'0');
+  const rk=sched.map(s=>({s,p:prog(s,t)})).sort((a,b)=>b.p-a.p);
+  $('rank').textContent=rk.slice(0,5).map((x,i)=>`${i+1}.${x.s.p.name}`).join('  ');
+  if(Date.now()-lastC>6000&&race.status=='running'){lastC=Date.now();$('cast').textContent=rem<30?'ゴールまで残り'+Math.ceil(rem)+'秒！':cast[Math.floor(Math.random()*cast.length)].replace('{L}',rk[0].s.p.name)}
+  sched.forEach(s=>{let m=meshes[s.p.name];if(!m){m=meshes[s.p.name]=new THREE.Mesh(new THREE.SphereGeometry(1.2,16,16),new THREE.MeshStandardMaterial({color:new THREE.Color(hue(s.p.id-1)),emissive:new THREE.Color(hue(s.p.id-1)),emissiveIntensity:.4}));S.add(m)}
+   m.position.copy(pos(prog(s,t),s.lane*3-1.5))});
+  const lp=rk[0].p,lead=pos(lp,1.5),a=lp*6*Math.PI;cam.position.set(lead.x*1.7,lead.y+14,lead.z*1.7);cam.lookAt(lead);
+  if(t>=Math.max(...sched.map(s=>s.T))+1)fin()}
+ else{$('timer').textContent=race.status=='paused'?'PAUSED':'WAITING';const a=Date.now()/4000;cam.position.set(Math.cos(a)*120,60,Math.sin(a)*120);cam.lookAt(0,30,0);
+  if(race.status=='waiting'){Object.values(meshes).forEach(m=>S.remove(m));meshes={};done=false;$('over').style.display='none'}}
+ R.render(S,cam)}
+load();loop();
+['players','race','chat'].forEach(t=>sb.channel('rt-'+t).on('postgres_changes',{event:'*',schema:'public',table:t},load).subscribe());
+setInterval(draw,5000);
+</script></body></html>
