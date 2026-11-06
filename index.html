@@ -1,132 +1,277 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>BRO PASS MARBLE GRAND PRIX</title>
 <style>
-:root{--bg:#050b1f;--gold:#f5c542;--blue:#3b82f6;--glass:rgba(255,255,255,.07)}
-*{box-sizing:border-box}body{margin:0;background:radial-gradient(#10224d,#050b1f);color:#fff;font-family:system-ui,sans-serif;font-size:16px}
-h1{color:var(--gold);letter-spacing:2px;text-align:center;margin:12px;font-size:clamp(20px,5vw,34px)}
-.panel{background:var(--glass);border:1px solid #ffffff22;border-radius:14px;padding:12px;backdrop-filter:blur(8px);margin:10px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
-.card{padding:10px;border-radius:10px;background:#0b1636;border:1px solid #ffffff22;cursor:pointer}
-.dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px}
-.ONLINE{color:#4ade80}.OFFLINE{color:#888}.RACING{color:#60a5fa}.FINISHED{color:var(--gold)}.BANNED{color:#f87171}
-button{background:linear-gradient(#f5c542,#c89a1c);border:0;border-radius:8px;padding:10px 14px;font-weight:700;margin:3px;box-shadow:0 3px #7a5b0a}
-input{padding:10px;border-radius:8px;border:0;font-size:16px}
-#c{width:100%;height:55vh;display:block;border-radius:14px}
-#timer{font-size:clamp(32px,8vw,60px);color:var(--gold);text-align:center;font-weight:800}
-#cast{text-align:center;min-height:1.5em}
-#log{height:150px;overflow:auto;font-size:15px}
-#over{position:fixed;inset:0;background:#000d;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;z-index:9;overflow:auto}
-.big{font-size:clamp(28px,8vw,64px);color:var(--gold);font-weight:900}
-.hide{display:none}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;background:#050a1c;color:#fff;font:16px/1.5 system-ui,"Hiragino Sans","Noto Sans JP",sans-serif;overflow:hidden}
+#c,#fx{position:fixed;inset:0;width:100%;height:100%}#fx{pointer-events:none;z-index:30}
+#dim{position:fixed;inset:0;background:#000;opacity:0;transition:opacity 1s;z-index:5;pointer-events:none}#dim.on{opacity:.82}
+.screen{position:fixed;inset:0;z-index:10;overflow:auto;padding:16px}.hidden{display:none!important}
+.glass{background:rgba(9,18,48,.66);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.16);border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,.4)}
+.t{text-align:center;font-weight:900;font-size:clamp(26px,6vw,56px);letter-spacing:.04em;background:linear-gradient(#fff3c4,#f5c451 60%,#c98a0a);-webkit-background-clip:text;background-clip:text;color:transparent;margin:8px 0}
+.sub{text-align:center;opacity:.85;margin-bottom:12px}
+.note{padding:10px 14px;margin:10px 0;color:#ffe9a8;font-size:14px}
+button.b{background:linear-gradient(#ffd96b,#e0a21a);color:#1a1200;border:0;border-radius:10px;padding:9px 14px;font-weight:800;font-size:15px;box-shadow:0 4px 0 #8a5d00;cursor:pointer;margin:3px}
+button.b:active{transform:translateY(3px);box-shadow:0 1px 0 #8a5d00}button.r{background:linear-gradient(#ff8a8a,#d93a3a);box-shadow:0 4px 0 #7a1414;color:#fff}
+input,select{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:8px;padding:9px;font-size:16px;min-width:0}
+.chip{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;font-weight:800;color:#fff;white-space:nowrap}
+.green{background:#16a34a}.gray{background:#6b7280}.blue{background:#2563eb}.gold{background:#f5c451;color:#2a1c00}.red{background:#dc2626}
+#cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin:12px 0}
+.card{padding:12px;cursor:pointer;display:flex;flex-direction:column;gap:4px;transition:.15s}.card:hover{transform:translateY(-3px);border-color:#f5c451}.card.off{opacity:.45;cursor:not-allowed}
+.dot{display:inline-block;width:16px;height:16px;border-radius:50%;margin-right:6px;vertical-align:middle;box-shadow:0 0 10px currentColor}
+.nm{font-weight:800;word-break:break-all}
+#hud{padding:0;overflow:hidden;pointer-events:none}#hud>*{position:absolute}
+#top{top:8px;left:8px;right:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 14px;pointer-events:auto}
+#title{font-weight:900;color:#f5c451;font-size:clamp(12px,2.4vw,20px);line-height:1.2}#stat{font-size:12px;opacity:.9}
+#timer{font:900 clamp(28px,6vw,52px)/1 ui-monospace,Menlo,monospace;color:#ffd96b;text-shadow:0 0 18px #f5a623}
+#meta{font-weight:800;text-align:right;font-size:14px}
+#ann{top:76px;left:50%;transform:translateX(-50%);padding:6px 14px;font-weight:800;color:#ffe9a8;max-width:92vw;pointer-events:auto;z-index:2}
+#board{left:8px;top:116px;width:min(250px,46vw);padding:8px;pointer-events:auto;font-size:13px}
+.row{display:flex;align-items:center;gap:6px;padding:2px 4px;border-radius:6px}.row.me{background:rgba(245,196,81,.3)}.row .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row b{width:24px;text-align:right}
+#goals{left:calc(min(250px,46vw) + 16px);top:116px;font-weight:800;color:#ffd96b;text-shadow:0 2px 6px #000;font-size:14px}
+#cast{left:50%;transform:translateX(-50%);bottom:12px;max-width:min(560px,92vw);padding:10px 16px;font-weight:800;text-align:center;pointer-events:none;width:max-content}
+#big{left:0;right:0;top:36%;text-align:center;font-weight:900;font-size:clamp(34px,11vw,130px);color:#ffd96b;text-shadow:0 0 30px #f5a623,0 4px 0 #6b4400;pointer-events:none;line-height:1.1}
+#wait{left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,92vw);max-height:62vh;overflow:auto;padding:16px;pointer-events:auto;text-align:center}
+#final{left:50%;top:50%;transform:translate(-50%,-50%);width:min(640px,94vw);max-height:90vh;overflow:auto;padding:18px;text-align:center;pointer-events:auto;background:rgba(5,10,30,.9)}
+#final .w{font-size:clamp(30px,8vw,64px);font-weight:900;color:#ffd96b;word-break:break-all;text-shadow:0 0 24px #f5a623}
+#chat{right:8px;top:116px;bottom:12px;width:320px;display:flex;flex-direction:column;padding:8px;pointer-events:auto}
+#msgs{flex:1;overflow:auto;font-size:14px;word-break:break-all}#msgs div{padding:2px 0}#msgs .ad{color:#ffd96b;font-weight:800}
+#chatbtn{right:10px;bottom:10px;display:none;pointer-events:auto}
+#cin{display:flex;gap:6px;margin-top:6px}#cin input{flex:1}
+@media(max-width:760px){#chat{left:8px;right:8px;top:auto;bottom:64px;width:auto;height:42vh}#chatbtn{display:block}#cast{bottom:70px}.row:nth-child(n+7){display:none}#goals{top:auto;bottom:130px}}
+.ar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 10px}.ar>span:first-child{flex:1;min-width:140px;word-break:break-all}
+table{width:100%;border-collapse:collapse;font-size:14px;margin-top:10px}td,th{padding:3px 6px;text-align:left;border-bottom:1px solid rgba(255,255,255,.12)}
 </style></head><body>
-<h1>BRO PASS MARBLE GRAND PRIX</h1>
-<div id="sel" class="panel"><h2>YOUR MARBLE IS WAITING</h2><p>自分のアカウントを選択してレースに参加しよう！</p>
-<div id="cards" class="grid"></div>
-<p><button onclick="adminLogin()">管理者</button></p></div>
-<div id="main" class="hide">
-<div class="panel"><div id="timer">WAITING</div><div id="cast"></div><div id="notice"></div>
-<div id="rule" style="color:#9cc;font-size:14px;text-align:center"></div></div>
-<canvas id="c"></canvas>
-<div class="panel"><b>順位</b> <span id="rank"></span></div>
-<div class="panel"><b>プレイヤー</b> <span id="cnt"></span><div id="plist" class="grid"></div></div>
-<div class="panel"><b>CHAT</b><div id="log"></div><input id="msg" maxlength="100" style="width:70%"><button onclick="send()">送信</button></div>
-<div id="admin" class="panel hide"><b>ADMIN</b><br>
-<button onclick="adStart()">開始</button><button onclick="adSet('paused')">一時停止</button><button onclick="adSet('resume')">再開</button><button onclick="adSet('cancel')">中止</button><button onclick="adSet('reset')">リセット</button><br>
-方式 <select id="mode"><option value="designated">指定当選者</option><option value="random">完全ランダム</option></select>
-指定 <input id="des" size="14"><button onclick="adMode()">保存</button><br>
-<input id="tn" placeholder="テスト名" size="12"><button onclick="adAdd()">テスト追加</button>
-<input id="nt" placeholder="お知らせ" size="16"><button onclick="adNotice()">投稿</button>
-<div id="adl"></div></div>
+<canvas id="c"></canvas><canvas id="fx"></canvas><div id="dim"></div>
+
+<section id="sel" class="screen"><div style="max-width:1100px;margin:auto">
+<h1 class="t">YOUR MARBLE IS WAITING</h1>
+<p class="sub">自分のアカウントを選択してレースに参加しよう！</p>
+<div id="rule" class="glass note"></div>
+<div id="cards"></div>
+<p style="text-align:center"><button class="b" id="spec">観戦のみで入る</button></p>
+</div></section>
+
+<section id="hud" class="screen hidden">
+<div id="top" class="glass"><div><div id="title">BRO PASS<br>MARBLE GRAND PRIX</div><div id="stat"></div></div><div id="timer">3:00</div><div id="meta"></div></div>
+<div id="ann" class="glass hidden"></div>
+<div id="board" class="glass"></div><div id="goals"></div>
+<div id="wait" class="glass"></div>
+<div id="big"></div><div id="cast" class="glass hidden"></div>
+<div id="final" class="glass hidden"></div>
+<button id="chatbtn" class="b">💬 チャット</button>
+<div id="chat" class="glass"><div id="onl" style="font-size:12px;opacity:.8"></div><div id="msgs"></div>
+<div id="cin"><input id="ci" maxlength="120" placeholder="メッセージ"><button class="b" id="cs">送信</button></div></div>
+</section>
+
+<section id="adm" class="screen hidden"><div style="max-width:960px;margin:auto">
+<h1 class="t" style="font-size:30px">ADMIN CONSOLE</h1>
+<div id="login" class="glass ar"><input id="pw" type="password" placeholder="管理者パスワード"><button class="b" id="lg">ログイン</button></div>
+<div id="panel" class="hidden">
+<div class="glass note" id="ast"></div>
+<div class="glass ar">
+<button class="b" data-a="start">▶ レース開始</button><button class="b" data-a="pause">⏸ 一時停止</button><button class="b" data-a="resume">⏯ 再開</button>
+<button class="b r" data-a="abort">■ 中止</button><button class="b r" data-a="reset">↺ リセット</button></div>
+<div class="glass ar"><span>抽選方式</span><select id="mode"><option value="designated">管理者指定</option><option value="random">完全ランダム</option></select>
+<button class="b" data-a="set_mode" data-i="#mode">適用</button></div>
+<div class="glass ar"><span>指定当選者（先頭が当選。複数は , 区切りで優先順位）</span><input id="win" style="flex:1"><button class="b" data-a="set_winner" data-i="#win">設定</button></div>
+<div class="glass ar"><input id="tn" placeholder="テストプレイヤー名" maxlength="30"><button class="b" data-a="add_test" data-i="#tn">テスト追加</button></div>
+<div class="glass ar"><input id="an" placeholder="お知らせ" maxlength="120" style="flex:1"><button class="b" data-a="announce" data-i="#an">投稿</button><button class="b" data-a="announce" data-x="">消す</button></div>
+<h3 style="margin:12px 0 4px">参加者</h3><div id="aplayers"></div>
+<h3 style="margin:12px 0 4px">レース結果</h3><div id="ares" class="glass note"></div>
+<h3 style="margin:12px 0 4px">チャット管理</h3><div id="achat" class="glass" style="max-height:260px;overflow:auto"></div>
 </div>
-<div id="over"><div class="big">WE HAVE A WINNER!!</div><div class="big" id="wn" style="color:#fff"></div><div class="big">CONGRATULATIONS！</div><div id="tbl" style="max-width:420px;text-align:left"></div><button onclick="document.getElementById('over').style.display='none'">閉じる</button></div>
-<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js"></script>
+<p style="margin-top:14px;text-align:center"><a href="#" style="color:#ffd96b">← 参加者画面へ</a></p>
+</div></section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-const $=id=>document.getElementById(id),C=CFG,sb=supabase.createClient(C.SUPABASE_URL,C.SUPABASE_KEY);
-let me=null,isAdmin=false,players=[],race={},chat=[],last=0,sched=[],done=false;
-const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const on=p=>p.online&&Date.now()-new Date(p.last_seen)<25000;
-const st=p=>p.banned?'BANNED':race.status=='finished'&&1?'FINISHED':race.status=='running'&&on(p)?'RACING':on(p)?'ONLINE':'OFFLINE';
-const hue=i=>`hsl(${i*360/Math.max(players.length,30)},85%,55%)`;
-function mulberry(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
-async function load(){
- const[a,b,c]=await Promise.all([sb.from('players').select('*').order('id'),sb.from('race').select('*').eq('id',1).single(),sb.from('chat').select('*').order('created_at',{ascending:false}).limit(50)]);
- players=a.data||[];race=b.data||{};chat=(c.data||[]).reverse();draw();
-}
-function draw(){
- const pl=players.filter(p=>!p.banned);
- $('cards').innerHTML=players.map(p=>`<div class="card" onclick="pick('${esc(p.name).replace(/'/g,"\\'")}')"><span class="dot" style="background:${hue(p.id-1)}"></span>${esc(p.name)}<br><small class="${st(p)}">${st(p)}</small></div>`).join('');
- $('plist').innerHTML=players.map(p=>`<div class="card"><span class="dot" style="background:${hue(p.id-1)}"></span>${esc(p.name)} <small class="${st(p)}">${st(p)}</small>${isAdmin?` <button onclick="ban(${p.id},${!p.banned})">${p.banned?'解除':'BAN'}</button><button onclick="del(${p.id})">削除</button>`:''}</div>`).join('');
- $('cnt').textContent=`参加${pl.length}名 / オンライン${players.filter(on).length}名`;
- $('notice').innerHTML=race.notice?'📢 '+esc(race.notice):'';
- $('rule').textContent=race.mode=='designated'?`【ルール】今大会は管理者指定の当選者（${race.designated}）が正式な当選者になります。演出上の順位とは別に管理されます。`:'【ルール】完全ランダム抽選';
- $('log').innerHTML=chat.map(m=>`<div>${new Date(m.created_at).toLocaleTimeString().slice(0,5)} <b>${esc(m.name)}</b>：${esc(m.msg)}${isAdmin?` <a href="#" onclick="dc(${m.id});return false">🗑</a>`:''}</div>`).join('');
- $('log').scrollTop=1e9;
- if(race.mode)$('mode').value=race.mode;
- buildSched();
-}
-function buildSched(){ // deterministic from server seed: identical on all screens
- const pl=players.filter(p=>!p.banned);if(!race.seed||!pl.length){sched=[];return}
- const r=mulberry(race.seed);
- sched=pl.map(p=>({p,T:C.RACE_SEC-18+r()*18,k:4+Math.floor(r()*4),amp:.03+r()*.03,ph:r()*6,lane:r()}));
- let w=null;
- if(race.mode=='designated')w=sched.find(s=>s.p.name==race.designated);
- else w=sched.slice().sort((a,b)=>a.T-b.T)[0];
- if(w){const m=Math.min(...sched.map(s=>s.T));w.T=Math.min(m,w.T)-.7;w.win=true}
-}
-const prog=(s,t)=>{const u=Math.min(1,Math.max(0,t/s.T));return u>=1?1:Math.min(1,u+s.amp*Math.sin(Math.PI*s.k*u)/ (s.k*Math.PI)*s.k*0.6)};
-function el(){ if(race.status=='running')return(Date.now()-race.start_at)/1000-(race.paused_total||0);
- if(race.status=='paused')return(race.paused_at-race.start_at)/1000-(race.paused_total||0);
- return race.status=='finished'?C.RACE_SEC:-1}
-async function pick(n){
- const p=players.find(x=>x.name==n);if(p.banned)return alert('BANされています');
- if(on(p)&&(!me||me!=n))return alert('他の人が使用中です');
- me=n;$('sel').classList.add('hide');$('main').classList.remove('hide');beat();setInterval(beat,10000);
-}
-async function beat(){if(me)await sb.from('players').update({online:true,last_seen:new Date().toISOString()}).eq('name',me)}
-addEventListener('beforeunload',()=>{if(me)sb.from('players').update({online:false}).eq('name',me)});
-async function send(){const v=$('msg').value.trim();if(!v||Date.now()-last<2000)return;last=Date.now();$('msg').value='';await sb.from('chat').insert({name:me||'ADMIN',msg:v})}
-// admin
-function adminLogin(){if(prompt('管理者パスワード')==C.ADMIN_PASS){isAdmin=true;me=me||'ADMIN';$('sel').classList.add('hide');$('main').classList.remove('hide');$('admin').classList.remove('hide');draw()}else alert('違います')}
-const upd=o=>sb.from('race').update(o).eq('id',1);
-async function adStart(){await upd({status:'running',seed:Math.floor(Math.random()*1e9),start_at:Date.now()+8000,paused_at:null,paused_total:0,winner:null})}
-async function adSet(a){const now=Date.now();
- if(a=='paused'&&race.status=='running')await upd({status:'paused',paused_at:now});
- if(a=='resume'&&race.status=='paused')await upd({status:'running',paused_total:(race.paused_total||0)+(now-race.paused_at)/1000,paused_at:null});
- if(a=='cancel'||a=='reset')await upd({status:'waiting',seed:null,winner:null});}
-async function adMode(){await upd({mode:$('mode').value,designated:$('des').value.trim()||race.designated})}
-async function adAdd(){const n=$('tn').value.trim();if(n)await sb.from('players').insert({name:n,is_test:true});$('tn').value=''}
-async function adNotice(){await upd({notice:$('nt').value})}
-const ban=(id,b)=>sb.from('players').update({banned:b}).eq('id',id),del=id=>sb.from('players').delete().eq('id',id),dc=id=>sb.from('chat').delete().eq('id',id);
-// 3D
-const cv=$('c'),R=new THREE.WebGLRenderer({canvas:cv,antialias:true}),S=new THREE.Scene(),cam=new THREE.PerspectiveCamera(60,1,.1,500);
-S.background=new THREE.Color(0x050b1f);S.add(new THREE.AmbientLight(0xffffff,.7));const dl=new THREE.DirectionalLight(0xffffff,1);dl.position.set(40,80,40);S.add(dl);
-const pos=(p,l)=>{const a=p*6*Math.PI,r=30+l*4;return new THREE.Vector3(Math.cos(a)*r,60*(1-p)+ (l*1.2),Math.sin(a)*r)};
-const pts=[];for(let i=0;i<=240;i++)pts.push(pos(i/240,1.5));
-S.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts),400,6.5,10,false),new THREE.MeshStandardMaterial({color:0x1d3a7a,transparent:true,opacity:.35,side:THREE.DoubleSide})));
-const goal=new THREE.Mesh(new THREE.TorusGeometry(7,.5,8,24),new THREE.MeshBasicMaterial({color:0xf5c542}));goal.position.copy(pos(1,1.5));S.add(goal);
-let meshes={};
-function size(){const w=cv.clientWidth,h=cv.clientHeight;R.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix()}addEventListener('resize',size);size();
-const cast=['現在トップを走るのは{L}！','おっと！ここで大きく順位が入れ替わった！','第2集団が接近しています！','これは最後まで分かりません！','{L}が抜け出すか！？','後方から追い上げてくる！'];let lastC=0;
-function fin(){if(done)return;done=true;const o=sched.slice().sort((a,b)=>a.T-b.T),w=o[0].p.name;
- $('wn').textContent=w;$('tbl').innerHTML=o.map((s,i)=>`<div>${i+1}. ${esc(s.p.name)}</div>`).join('')+`<p style="font-size:13px">${race.mode=='designated'?'管理者指定ルール適用':'完全ランダム'}</p>`;$('over').style.display='flex'}
-function loop(){requestAnimationFrame(loop);const t=el();
- if(race.status=='running'&&Date.now()<race.start_at){$('timer').textContent=Math.ceil((race.start_at-Date.now())/1000);done=false}
- else if(t>=0&&sched.length){const rem=Math.max(0,C.RACE_SEC-t);$('timer').textContent=Math.floor(rem/60)+':'+String(Math.floor(rem%60)).padStart(2,'0');
-  const rk=sched.map(s=>({s,p:prog(s,t)})).sort((a,b)=>b.p-a.p);
-  $('rank').textContent=rk.slice(0,5).map((x,i)=>`${i+1}.${x.s.p.name}`).join('  ');
-  if(Date.now()-lastC>6000&&race.status=='running'){lastC=Date.now();$('cast').textContent=rem<30?'ゴールまで残り'+Math.ceil(rem)+'秒！':cast[Math.floor(Math.random()*cast.length)].replace('{L}',rk[0].s.p.name)}
-  sched.forEach(s=>{let m=meshes[s.p.name];if(!m){m=meshes[s.p.name]=new THREE.Mesh(new THREE.SphereGeometry(1.2,16,16),new THREE.MeshStandardMaterial({color:new THREE.Color(hue(s.p.id-1)),emissive:new THREE.Color(hue(s.p.id-1)),emissiveIntensity:.4}));S.add(m)}
-   m.position.copy(pos(prog(s,t),s.lane*3-1.5))});
-  const lp=rk[0].p,lead=pos(lp,1.5),a=lp*6*Math.PI;cam.position.set(lead.x*1.7,lead.y+14,lead.z*1.7);cam.lookAt(lead);
-  if(t>=Math.max(...sched.map(s=>s.T))+1)fin()}
- else{$('timer').textContent=race.status=='paused'?'PAUSED':'WAITING';const a=Date.now()/4000;cam.position.set(Math.cos(a)*120,60,Math.sin(a)*120);cam.lookAt(0,30,0);
-  if(race.status=='waiting'){Object.values(meshes).forEach(m=>S.remove(m));meshes={};done=false;$('over').style.display='none'}}
- R.render(S,cam)}
-load();loop();
-['players','race','chat'].forEach(t=>sb.channel('rt-'+t).on('postgres_changes',{event:'*',schema:'public',table:t},load).subscribe());
-setInterval(draw,5000);
+const $=s=>document.querySelector(s),el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
+const API='/.netlify/functions/api',LIMIT=180,T0=165;
+const call=async(op,a={})=>{try{const r=await fetch(API,{method:'POST',body:JSON.stringify({op,...a})});return await r.json()}catch(e){return{error:'通信エラー'}}};
+const sb={rpc:async(n,a)=>{const j=await call(n,a);return j.error?{data:null,error:{message:j.error}}:{data:j.data}}};
+let P=[],R={status:'waiting',results:[],mode:'designated',winner:'',announce:'',seed:1},CH=[],PR={},off=0,entered=false;
+let me=sessionStorage.getItem('me')||'',tok=sessionStorage.getItem('tok')||(sessionStorage.tok=Math.random().toString(36).slice(2)+Date.now()),pw=sessionStorage.getItem('pw')||'';
+const now=()=>Date.now()+off,ms=s=>Date.parse(String(s).replace(/(\.\d{3})\d+/,'$1'));
+const hue=p=>`hsl(${(p.sort*137.508)%360} 85% ${50+12*(p.sort%2)}%)`;
+const online=p=>p.is_test||(PR[p.name]&&now()-PR[p.name]<25000);
+function raceT(){if(R.status==='racing')return(now()-ms(R.start_at))/1000;if(R.status==='paused')return(ms(R.paused_at)-ms(R.start_at))/1000;return null}
+function stat(p){if(p.banned)return['BANNED','red'];const t=raceT(),i=R.results.indexOf(p.name);
+ if(t!=null&&t>=0&&i>=0){if(t>=T0+i*.5)return['FINISHED','gold'];return online(p)?['RACING','blue']:['OFFLINE','gray']}
+ return online(p)?['ONLINE','green']:['OFFLINE','gray']}
+const ruleText=()=>R.mode==='designated'?`📌 今大会は【管理者指定モード】です。正式な当選者は ${String(R.winner).split(',')[0]} に設定されています。`:'🎲 今大会は【完全ランダム抽選】です。';
+async function sync(){const a=Date.now(),{data}=await sb.rpc('now_ms');if(data!=null)off=Number(data)-(a+Date.now())/2}
+async function load(){const a=Date.now(),j=await call('state');if(j.error||!j.players)return;off=j.now-(a+Date.now())/2;
+ P=j.players;R=j.race;CH=j.chat;PR={};j.presence.forEach(x=>PR[x.name]=ms(x.last_seen));onData()}
+function onData(){rebuild();renderSel();renderHud();renderChat();renderAdmin()}
+
+/* ---------- 参加者選択 ---------- */
+let ssig='';function renderSel(){if(entered)return;const q_=P.map(p=>p.name+stat(p)[0]).join()+ruleText();if(q_===ssig)return;ssig=q_;$('#rule').textContent=ruleText();const box=$('#cards');box.textContent='';
+ P.forEach(p=>{const[s,c]=stat(p),d=el('div','card glass'+(p.banned?' off':''));
+  const n=el('div','nm');const dot=el('span','dot');dot.style.background=dot.style.color=hue(p);n.append(dot,p.name);
+  const r=el('div');r.append(el('span','chip '+c,s),' ',el('span','',online(p)?'参加中':'未参加'));
+  d.append(n,r);d.onclick=()=>!p.banned&&pick(p.name);box.append(d)})}
+async function pick(n){const{data}=await sb.rpc('claim_player',{p_name:n,p_token:tok});
+ if(data==='ok'){me=n;sessionStorage.me=n;enter()}else alert({taken:'このアカウントは他の人が使用中です',banned:'このアカウントはBANされています'}[data]||'参加できませんでした')}
+function enter(){entered=true;if(innerWidth<=760)$('#chat').classList.add('hidden');route()}
+$('#spec').onclick=()=>{me='';sessionStorage.removeItem('me');enter()};
+$('#chatbtn').onclick=()=>$('#chat').classList.toggle('hidden');
+setInterval(async()=>{if(!me)return;const{data}=await sb.rpc('heartbeat',{p_name:me,p_token:tok});
+ if(data===false){sessionStorage.removeItem('me');alert('接続が解除されました');location.reload()}},8000);
+addEventListener('pagehide',()=>{if(me)navigator.sendBeacon(API,JSON.stringify({op:'release_player',p_name:me,p_token:tok}))});
+
+/* ---------- HUD / チャット ---------- */
+function renderHud(){if(!entered)return;const t=raceT(),act=P.filter(p=>!p.banned);
+ $('#meta').textContent=`ONLINE ${P.filter(online).length} / ${act.length}`;$('#onl').textContent=`オンライン ${P.filter(online).length}人`;
+ $('#stat').textContent={waiting:'待機中',racing:'RACE LIVE',paused:'一時停止中',aborted:'レース中止'}[R.status]||'';
+ const a=$('#ann');a.classList.toggle('hidden',!R.announce);a.textContent='📢 '+R.announce;
+ const w=$('#wait');w.classList.toggle('hidden',t!=null);
+ if(t==null){w.textContent='';w.append(el('h2','',R.status==='aborted'?'レースは中止されました':'レース開始をお待ちください'),
+  el('p','',`参加者 ${act.length}人 ／ オンライン ${P.filter(online).length}人`),el('p','note',ruleText()),
+  el('p','',R.status==='aborted'?'管理者の再開準備をお待ちください。':'管理者が開始ボタンを押すと、全員の画面で同時にレースが始まります。'));
+  const l=el('div');act.filter(online).forEach(p=>{const s=el('span','chip green',p.name);s.style.margin='2px';l.append(s)});w.append(l)}
+ $('#ci').disabled=!me;$('#ci').placeholder=me?'メッセージ':'参加者のみ投稿できます'}
+let csig='';
+function renderChat(){const sig=CH.map(c=>c.id+(c.deleted?'x':'')).join();if(sig===csig)return;csig=sig;const m=$('#msgs');
+ const near=m.scrollHeight-m.scrollTop-m.clientHeight<60;m.textContent='';
+ CH.filter(c=>!c.deleted).forEach(c=>{const d=el('div',c.name.startsWith('📢')?'ad':'');
+  d.textContent=`[${new Date(c.ts).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})}] ${c.name}：${c.msg}`;m.append(d)});
+ if(near||!m.dataset.i){m.scrollTop=m.scrollHeight;m.dataset.i=1}}
+async function say_(){const v=$('#ci').value.trim();if(!v||!me)return;$('#ci').value='';
+ const{data}=await sb.rpc('send_chat',{p_name:me,p_token:tok,p_msg:v});if(data==='rate')alert('連続投稿はできません。少し待ってください');load()}
+$('#cs').onclick=say_;$('#ci').onkeydown=e=>{if(e.key==='Enter')say_()};
+
+/* ---------- 3D ---------- */
+const cv=$('#c'),rd=new THREE.WebGLRenderer({canvas:cv,antialias:true});rd.setPixelRatio(Math.min(devicePixelRatio,2));
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x050a1c);scene.fog=new THREE.Fog(0x050a1c,150,900);
+const cam=new THREE.PerspectiveCamera(60,1,.1,2500);
+function rs(){rd.setSize(innerWidth,innerHeight,false);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();const f=$('#fx');f.width=innerWidth;f.height=innerHeight}
+addEventListener('resize',rs);rs();
+scene.add(new THREE.AmbientLight(0x7a92d8,.8));const dl=new THREE.DirectionalLight(0xffffff,.9);dl.position.set(100,300,100);scene.add(dl);
+const pl=new THREE.PointLight(0xffe0a0,1.4,70);scene.add(pl);
+{const g=new THREE.BufferGeometry(),a=[];for(let i=0;i<900;i++){const v=new THREE.Vector3().randomDirection().multiplyScalar(1200);a.push(v.x,v.y,v.z)}
+ g.setAttribute('position',new THREE.Float32BufferAttribute(a,3));window.stars=new THREE.Points(g,new THREE.PointsMaterial({color:0x9db8ff,size:3,fog:false}));scene.add(stars)}
+// コース（タートル方式：[旋回角, 長さ, 落差]）螺旋→ジグザグ→急降下→S字→逆螺旋→ゴール手前の長い坂
+const segs=[[0,30,3],[720,260,40],[-120,45,5],[120,45,5],[-120,45,5],[120,45,5],[0,40,22],[180,80,8],[-180,80,8],[-540,200,25],[0,90,12],[0,40,0]];
+const pts=[new THREE.Vector3(0,80,0)];{let x=0,y=80,z=0,h=0;segs.forEach(([tn,len,dr])=>{const n=Math.ceil(len/7);for(let i=0;i<n;i++){h+=tn/n*Math.PI/180;x+=Math.sin(h)*len/n;z+=Math.cos(h)*len/n;y-=dr/n;pts.push(new THREE.Vector3(x,y,z))}})}
+const curve=new THREE.CatmullRomCurve3(pts,false,'centripetal'),L=curve.getLength(),S0=18/L,SG=1-36/L;
+const V=new THREE.Vector3(),TG=new THREE.Vector3(),SD=new THREE.Vector3(),UP=new THREE.Vector3(),G=new THREE.Vector3(),Y=new THREE.Vector3(0,1,0);
+function frame(s){curve.getPointAt(s,V);curve.getTangentAt(s,TG);SD.crossVectors(TG,Y).normalize();UP.crossVectors(SD,TG).normalize()}
+{const tg=new THREE.TubeGeometry(curve,700,2.6,14,false);
+ scene.add(new THREE.Mesh(tg,new THREE.MeshPhysicalMaterial({color:0x7fb2ff,transparent:true,opacity:.14,roughness:.05,side:THREE.DoubleSide,depthWrite:false})));
+ scene.add(new THREE.Mesh(tg,new THREE.MeshBasicMaterial({color:0x4d7bff,wireframe:true,transparent:true,opacity:.16})));
+ const N=500,pos=[],idx=[],e1=[],e2=[];for(let i=0;i<=N;i++){frame(i/N);[-1.7,1.7].forEach((w,j)=>{const q=V.clone().addScaledVector(SD,w).addScaledVector(UP,-2);pos.push(q.x,q.y,q.z);(j?e2:e1).push(q)})}
+ for(let i=0;i<N;i++){const a=i*2;idx.push(a,a+1,a+2,a+1,a+3,a+2)}
+ const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setIndex(idx);g.computeVertexNormals();
+ scene.add(new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:0x1b2f66,emissive:0x0a1a44,side:THREE.DoubleSide,roughness:.4})));
+ [e1,e2].forEach(e=>scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(e),new THREE.LineBasicMaterial({color:0xf5c451}))))}
+frame(SG);const ring=new THREE.Mesh(new THREE.TorusGeometry(2.7,.18,10,40),new THREE.MeshStandardMaterial({color:0xffd96b,emissive:0xf5a623,emissiveIntensity:1.2}));
+ring.position.copy(V);ring.lookAt(V.clone().add(TG));scene.add(ring);
+frame(S0);const gate=new THREE.Mesh(new THREE.BoxGeometry(5.4,4.4,.3),new THREE.MeshStandardMaterial({color:0xff3b3b,emissive:0xaa0000,transparent:true,opacity:.55}));
+gate.position.copy(V).addScaledVector(TG,.5);gate.lookAt(V.clone().add(TG));scene.add(gate);
+const bb=new THREE.Box3().setFromPoints(pts),ctr=bb.getCenter(new THREE.Vector3()),sz=bb.getSize(new THREE.Vector3()),orb=Math.max(sz.x,sz.z)*1.1+90;
+
+const rng=a=>()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+const hash=n=>[...n].reduce((a,c)=>(a*31+c.charCodeAt(0))|0,7),sg=new THREE.SphereGeometry(.42,24,16);
+let M=[],mkey='';
+function label(n,own){const c=document.createElement('canvas');c.width=256;c.height=48;const x=c.getContext('2d');x.font='bold 26px sans-serif';x.textAlign='center';
+ x.lineWidth=5;x.strokeStyle='#000';x.fillStyle=own?'#ffd96b':'#fff';x.strokeText(n,128,34);x.fillText(n,128,34);
+ const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false,transparent:true}));s.scale.set(own?8:5.6,own?1.5:1.05,1);s.renderOrder=9;return s}
+function rebuild(){const live=['racing','paused'].includes(R.status)&&R.results.length;
+ const names=live?R.results:P.filter(p=>!p.banned).map(p=>p.name),key=(live?'L':'W')+R.seed+'|'+names.join('|');if(key===mkey)return;mkey=key;
+ M.forEach(m=>{scene.remove(m.mesh);scene.remove(m.sp)});resetFlags();
+ M=names.map((n,i)=>{const p=P.find(x=>x.name===n)||{sort:i},c=new THREE.Color(hue(p)),r=rng(R.seed+hash(n)),k=3+Math.floor(r()*5);
+  const mesh=new THREE.Mesh(sg,new THREE.MeshStandardMaterial({color:c,emissive:c,emissiveIntensity:.45,metalness:.2,roughness:.15})),sp=label(n,n===me);
+  scene.add(mesh,sp);return{n,i,mesh,sp,k,a:(.35+.55*r())/(6.2832*k),ph:r()*6.28,lane:(r()-.5)*3,f:.5+r(),T:T0+i*.5,s:S0,done:false,css:hue(p)}})}
+function place(m,t){frame(S0);const row=Math.floor(m.i/5),col=m.i%5;
+ G.copy(V).addScaledVector(TG,-(row*1.05+.6)).addScaledVector(SD,(col-2)*.75).addScaledVector(UP,-1.55);
+ if(t==null||t<=0){m.s=S0;m.mesh.position.copy(G);m.sp.position.copy(G).y+=1.3;return}
+ const u=Math.min(1,t/m.T);let sf=u+m.a*Math.sin(Math.PI*u)*Math.sin(6.2832*m.k*u+m.ph);sf=Math.min(1,Math.max(0,sf));
+ const fin=t-m.T;m.s=fin>=0?SG:S0+(SG-S0)*sf;frame(m.s);
+ let lat=Math.max(-1.6,Math.min(1.6,m.lane*.55+.5*Math.sin(t*.6*m.f+m.ph)));
+ if(fin>0){const w=Math.min(1,fin);lat=lat*(1-w)+((m.i%5)-2)*.7*w}
+ V.addScaledVector(SD,lat).addScaledVector(UP,-1.55+.1*Math.abs(Math.sin(t*5*m.f+m.ph)));
+ if(fin>0)V.addScaledVector(TG,Math.min(1,fin)*(2.5+(m.i%6)*1.1));
+ if(t<2){const w=t/2;G.lerp(V,w*w*(3-2*w));m.mesh.position.copy(G)}else m.mesh.position.copy(V);
+ m.sp.position.copy(m.mesh.position).y+=1.3}
+
+/* ---------- 演出 ---------- */
+let ac;function beep(f,d=.15,v=.15){try{ac=ac||new(window.AudioContext||webkitAudioContext)();const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=f;g.gain.value=v;o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+d)}catch(e){}}
+let lastCount=99,lastLead='',castT=0,lastMsg='',fired={},finalOn=false,finalHid=false,bigS='',PT=[],fxT=0;
+function resetFlags(){lastCount=99;lastLead='';fired={};finalOn=false;finalHid=false;$('#goals').textContent='';$('#final').classList.add('hidden')}
+function big(s){if(s!==bigS){bigS=s;$('#big').textContent=s}}
+function say(s){if(s===lastMsg)return;lastMsg=s;const c=$('#cast');c.classList.remove('hidden');c.textContent='🎙 '+s}
+function chatter(o,t){const a=o[0],b=o[1],rem=Math.ceil(LIMIT-t);
+ const L=[`現在トップを走るのは${a.n}！`,`${a.n}が先頭をキープ！`,`第2集団が接近しています！`,`${b.n}が${a.n}に迫る！`,`おっと！ここで大きく順位が入れ替わった！`,`これは最後まで分かりません！`,
+  `コース上は大混戦！`,`ビー玉同士が激しく接触！`,`ジャンプ台で大きく跳ねた！`,`狭い通路で渋滞発生！`,`後方からの追い上げが始まった！`,`誰が勝つのか全く読めない！`,`急降下区間で一気にスピードアップ！`];
+ for(const x of[120,60,30,10])if(rem<=x&&!fired[x]){fired[x]=1;return say(`ゴールまで残り${x}秒！`)}
+ say(L[Math.floor(Math.random()*L.length)])}
+function goal(m){const g=el('div','',`🏁 ${m.i+1}位 ${m.n}`);$('#goals').prepend(g);while($('#goals').children.length>5)$('#goals').lastChild.remove();beep(m.i?700:1000,.25);
+ if(!m.i){big('🏁 '+m.n);setTimeout(()=>{bigS=''},3500)}}
+function hudTick(t,o){$('#timer').textContent=(m=>Math.floor(m/60)+':'+String(m%60).padStart(2,'0'))(Math.ceil(Math.max(0,LIMIT-Math.max(0,t??0))));
+ const b=$('#board');b.textContent='';if(t==null||!o.length)return;
+ o.slice(0,8).concat(M.includes(o.find(x=>x.n===me))&&o.indexOf(o.find(x=>x.n===me))>=8?[o.find(x=>x.n===me)]:[]).forEach(m=>{
+  const r=el('div','row'+(m.n===me?' me':'')),d=el('span','dot');d.style.background=d.style.color=m.css;
+  r.append(el('b','',o.indexOf(m)+1),d,el('span','n',m.n),el('span','',t>=m.T?'FIN':Math.round((m.s-S0)/(SG-S0)*100)+'%'));b.append(r)});
+ if(M.length>1&&t>3&&t<M[M.length-1].T){if(lastLead&&o[0].n!==lastLead)say(`おっと！${o[0].n}がトップに躍り出た！`);if(t>castT){castT=t+3.5+Math.random()*2.5;chatter(o,t)}}
+ lastLead=o[0].n}
+function showFinal(){finalOn=true;const f=$('#final');f.textContent='';f.classList.remove('hidden');
+ f.append(el('div','',''),el('h2','t','WE HAVE A WINNER!!'),el('div','w',R.results[0]),el('h2','t','CONGRATULATIONS！'),el('p','note',ruleText()));
+ const tb=el('table');R.results.forEach((n,i)=>{const r=el('tr');r.append(el('td','',i+1),el('td','',n));if(n===me)r.style.background='rgba(245,196,81,.3)';tb.append(r)});f.append(tb);
+ const c=el('button','b','閉じる');c.onclick=()=>{finalHid=true;f.classList.add('hidden');PT=[]};f.append(c)}
+function fxRun(dt,on){const f=$('#fx'),c=f.getContext('2d');if(!on){if(PT.length){c.clearRect(0,0,f.width,f.height);PT=[]}return}
+ fxT-=dt;if(fxT<=0){fxT=.6;const x=Math.random()*f.width,y=f.height*(.15+Math.random()*.35),h=Math.random()*360;for(let i=0;i<50;i++){const a=Math.random()*6.28,v=80+Math.random()*180;PT.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,l:1.4,h,s:3})}}
+ for(let i=0;i<4;i++)PT.push({x:Math.random()*f.width,y:-10,vx:(Math.random()-.5)*60,vy:100+Math.random()*120,l:6,h:Math.random()*360,s:6,c:1});
+ c.clearRect(0,0,f.width,f.height);PT=PT.filter(p=>(p.l-=dt)>0&&p.y<f.height+20);
+ PT.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;if(!p.c)p.vy+=150*dt;c.fillStyle=`hsl(${p.h} 100% 60%)`;c.globalAlpha=Math.min(1,p.l);c.fillRect(p.x,p.y,p.s,p.c?p.s*1.6:p.s)})}
+
+const look=new THREE.Vector3(),wp=new THREE.Vector3(),wl=new THREE.Vector3();let last=performance.now(),acc=0;
+function tick(tm){requestAnimationFrame(tick);const dt=Math.min(.1,(tm-last)/1000);last=tm;const t=raceT();
+ M.forEach(m=>place(m,t));stars.rotation.y+=dt*.01;ring.material.emissiveIntensity=1.2+Math.sin(tm/200)*.5;
+ const o=[...M].sort((a,b)=>b.s-a.s||a.T-b.T),live=t!=null&&entered;
+ if(t!=null&&t>=0)M.forEach(m=>{if(t>=m.T&&!m.done){m.done=true;goal(m)}});
+ gate.visible=t==null||t<.3;gate.position.y-=0;
+ $('#dim').classList.toggle('on',t!=null&&t<-3);
+ if(live&&t<0){const c=Math.ceil(-t);
+  if(t<-5)big('MARBLE GRAND PRIX');else if(t<-3.2)big(M.length+' MARBLES READY');else{big(String(c));if(c!==lastCount){lastCount=c;beep(660,.2)}}}
+ else if(live&&t<1.6){big('GO!');if(lastCount!==0){lastCount=0;beep(1100,.6,.2)}}else if(live&&t>=1.6&&bigS==='GO!')big('');
+ else if(t==null)big('');
+ // カメラ
+ if(o.length&&t!=null&&t>=0&&t<T0-4){const l=o[0];frame(l.s);wp.copy(l.mesh.position).addScaledVector(TG,-13).addScaledVector(UP,6.5);wl.copy(l.mesh.position).addScaledVector(TG,6)}
+ else if(o.length&&t!=null&&t>=T0-4){frame(SG);wp.copy(V).addScaledVector(SD,9).addScaledVector(UP,4).addScaledVector(TG,-5);wl.copy(V).addScaledVector(TG,2)}
+ else if(t!=null){frame(S0);wp.copy(V).addScaledVector(SD,14).addScaledVector(UP,6).addScaledVector(TG,-10+(t+9)*.6);wl.copy(V).addScaledVector(TG,-3)}
+ else{const a=tm/12000;wp.set(ctr.x+Math.cos(a)*orb,ctr.y+sz.y*.9+40,ctr.z+Math.sin(a)*orb);wl.copy(ctr)}
+ const k=t==null?1:1-Math.exp(-dt*3);cam.position.lerp(wp,k);look.lerp(wl,k);cam.lookAt(look);
+ if(o.length){pl.position.copy(o[0].mesh.position).y+=4}
+ acc+=dt;if(acc>.2){acc=0;if(live)hudTick(t,o);
+  if(live&&M.length&&t>M[M.length-1].T+2.5&&!finalOn&&!finalHid)showFinal();
+  if(t==null||t<0){if(finalOn){finalOn=false;$('#final').classList.add('hidden')}}}
+ fxRun(dt,finalOn&&!finalHid);rd.render(scene,cam)}
+requestAnimationFrame(tick);
+
+/* ---------- 管理者 ---------- */
+async function A(a,x=''){const{data,error}=await sb.rpc('admin',{p_pw:pw,p_action:a,p_arg:x});if(error){alert(error.message);return null}await load();return data}
+$('#lg').onclick=async()=>{pw=$('#pw').value;const{data,error}=await sb.rpc('admin',{p_pw:pw,p_action:'ping',p_arg:''});
+ if(error||data!=='ok'){pw='';alert('パスワードが違います');return}sessionStorage.pw=pw;route()};
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-a]');if(!b)return;const a=b.dataset.a;
+ if(['abort','reset','delete'].includes(a)&&!confirm('実行しますか？'))return;
+ const r=await A(a,b.dataset.i?$(b.dataset.i).value:(b.dataset.x??''));if(r&&r!=='ok')alert(r);if(b.dataset.i==='#tn'||b.dataset.i==='#an')$(b.dataset.i).value=''});
+function renderAdmin(){if(location.hash!=='#admin'||!pw)return;
+ $('#ast').textContent=`状態: ${R.status} ／ 方式: ${R.mode} ／ 指定: ${R.winner} ／ オンライン ${P.filter(online).length}/${P.length}`;
+ if(document.activeElement!==$('#win'))$('#win').value=R.winner;if(document.activeElement!==$('#mode'))$('#mode').value=R.mode;
+ const ap=$('#aplayers');ap.textContent='';P.forEach(p=>{const[s,c]=stat(p),r=el('div','glass ar'),n=el('span','',p.name+(p.is_test?'（テスト）':''));
+  const mk=(l,a,cl)=>{const b=el('button','b'+(cl?' r':''),l);b.dataset.a=a;b.dataset.x=p.name;return b};
+  r.append(n,el('span','chip '+c,s),p.banned?mk('BAN解除','unban'):mk('BAN','ban',1),mk('削除','delete',1));ap.append(r)});
+ $('#ares').textContent=R.results.length?R.results.map((n,i)=>`${i+1}. ${n}`).join('　'):'（まだ結果はありません）';
+ const ac=$('#achat');ac.textContent='';CH.filter(c=>!c.deleted).slice(-40).forEach(c=>{const r=el('div','ar'),b=el('button','b r','✕');b.dataset.a='del_chat';b.dataset.x=c.id;r.append(el('span','',`${c.name}：${c.msg}`),b);ac.append(r)})}
+function route(){const a=location.hash==='#admin';$('#adm').classList.toggle('hidden',!a);$('#sel').classList.toggle('hidden',a||entered);$('#hud').classList.toggle('hidden',a||!entered);
+ $('#panel').classList.toggle('hidden',!pw);$('#login').classList.toggle('hidden',!!pw);onData()}
+addEventListener('hashchange',route);
+
+/* ---------- 起動 ---------- */
+(async()=>{await sync();await load();
+ if(me){const{data}=await sb.rpc('claim_player',{p_name:me,p_token:tok});if(data==='ok')enter();else{me='';sessionStorage.removeItem('me')}}
+ route();
+ setInterval(load,2000);setInterval(sync,30000)})();
 </script></body></html>
